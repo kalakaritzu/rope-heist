@@ -19,14 +19,12 @@ const GROUP_ROPE = 0x0002;
 
 // verbs
 const GRAB_REACH = 1.4; // gap between you and the crate's surface
-const GRAB_DROP_DIST = 4; // a held crate this far away (someone got yanked, say) is let go
+const GRAB_DROP_DIST = 4; // a held crate this far away (you got shoved by a guard, say) is let go
 const HOLD_FORCE_MAX = 64; // one player can lift mass up to about 3.2 against gravity 20, so the safe (4.5) takes two
 const HOLD_SPRING = 70;
 const HOLD_DAMPING = 9;
 const HOLD_REACTION = 0.15; // how much a heavy load drags the carrier
-const YANK_SPEED = 15;
-const YANK_COOLDOWN = 60; // ticks
-const YANK_STUN = 22; // ticks of reduced steering so the yank actually carries you
+const SHOVE_STUN = 22; // ticks of reduced steering after a guard shoves you, so the shove actually carries you
 const TIE_REACH = 2.4; // how close you must stand to a pillar
 const TIE_SNAP = 1.5; // a rope segment further than this from the pillar can't be tied
 
@@ -87,11 +85,11 @@ export const LEVEL = {
   ],
 };
 
-export const emptyInput = () => ({ x: 0, z: 0, jump: false, grab: false, yank: false, tie: false });
+export const emptyInput = () => ({ x: 0, z: 0, jump: false, grab: false, tie: false });
 
-/** Wire format for inputs: [x, z, jump, grab, yank, tie]. */
-export const inputToArray = (i) => [i.x, i.z, i.jump ? 1 : 0, i.grab ? 1 : 0, i.yank ? 1 : 0, i.tie ? 1 : 0];
-export const inputFromArray = (d) => ({ x: d[0], z: d[1], jump: !!d[2], grab: !!d[3], yank: !!d[4], tie: !!d[5] });
+/** Wire format for inputs: [x, z, jump, grab, tie]. */
+export const inputToArray = (i) => [i.x, i.z, i.jump ? 1 : 0, i.grab ? 1 : 0, i.tie ? 1 : 0];
+export const inputFromArray = (d) => ({ x: d[0], z: d[1], jump: !!d[2], grab: !!d[3], tie: !!d[4] });
 
 /** Layout of the flat "pose" array (what the renderer draws) for n players. */
 export function layout(n) {
@@ -101,16 +99,15 @@ export function layout(n) {
   const cOff = rOff + ropes * ROPE_SEGMENTS * 3; // per crate: x y z qx qy qz qw
   const nc = LEVEL.crates.length;
   const kOff = cOff + nc * 7; // per rope: index of the tied-off segment, or -1
-  const fOff = kOff + ropes; // per player: yank cooldown 0..1 (for the flash)
-  const hOff = fOff + n; // per crate: how many players hold it
+  const hOff = kOff + ropes; // per crate: how many players hold it
   const gOff = hOff + nc; // per guard: x y z facing mode
   const sOff = gOff + LEVEL.guards.length * 5; // game: status, reason, seconds left, alert
-  return { n, ropes, pOff, rOff, cOff, kOff, fOff, hOff, gOff, sOff, crates: nc, guards: LEVEL.guards.length, size: sOff + 4 };
+  return { n, ropes, pOff, rOff, cOff, kOff, hOff, gOff, sOff, crates: nc, guards: LEVEL.guards.length, size: sOff + 4 };
 }
 
 /**
  * Layout of the flat "state" array: everything needed to restore the simulation (see state / loadState).
- * player: x y z, vx vy vz, facing, input x z jump grab yank tie, held prevGrab prevYank prevTie cooldown stun
+ * player: x y z, vx vy vz, facing, input x z jump grab tie, held prevGrab prevTie stun
  * pin (per rope): tied-off segment index or -1
  * rope segment: x y z qx qy qz qw vx vy vz
  * crate: x y z qx qy qz qw vx vy vz wx wy wz
@@ -118,7 +115,7 @@ export function layout(n) {
  * game: tick alert status reason winHold endTicks
  */
 export function stateLayout(n) {
-  const PN = 19, RN = 10, CN = 13, GN = 13, GAMEN = 6;
+  const PN = 16, RN = 10, CN = 13, GN = 13, GAMEN = 6;
   const pinOff = n * PN;
   const rOff = pinOff + (n - 1);
   const cOff = rOff + (n - 1) * ROPE_SEGMENTS * RN;
@@ -170,7 +167,7 @@ export function createSim(n) {
     collider.setCollisionGroups((GROUP_PLAYER << 16) | (0xffff & ~GROUP_ROPE));
     players.push({
       body, collider, input: emptyInput(), facing: 0, spawn: { x, z: SPAWN_Z },
-      held: -1, prevGrab: false, prevYank: false, prevTie: false, cooldown: 0, stun: 0,
+      held: -1, prevGrab: false, prevTie: false, stun: 0,
     });
   }
 
@@ -280,7 +277,7 @@ export function createSim(n) {
       if (Math.hypot(q.x - t.x, q.z - t.z) < 1.15 && g.contactCd === 0) { // caught someone: shove them and raise the alarm
         const dx = q.x - t.x, dz = q.z - t.z, d = Math.hypot(dx, dz) || 1;
         players[g.target].body.setLinvel({ x: pv.x + (dx / d) * 7, y: pv.y + 3, z: pv.z + (dz / d) * 7 }, true);
-        players[g.target].stun = YANK_STUN;
+        players[g.target].stun = SHOVE_STUN;
         gain += ALERT_CONTACT;
         g.contactCd = CONTACT_COOLDOWN;
       }
@@ -345,8 +342,8 @@ export function createSim(n) {
     const speed = MOVE_SPEED / (1 + 0.1 * carriedMass(p)); // heavy loads slow you down
     const v = p.body.linvel();
     const grounded = isGrounded(p);
-    // blend toward target velocity so the rope can still yank us around; right after a yank
-    // we barely steer at all, otherwise the blend would cancel the yank in a few ticks
+    // blend toward target velocity so the rope can still pull us around; right after a guard's shove
+    // we barely steer at all, otherwise the blend would cancel the shove in a few ticks
     const accel = p.stun > 0 ? 0.03 : grounded ? 0.35 : 0.1;
     const vx = v.x + (dx * speed - v.x) * accel;
     const vz = v.z + (dz * speed - v.z) * accel;
@@ -392,31 +389,6 @@ export function createSim(n) {
         p.body.applyImpulse({ x: -fx * STEP * HOLD_REACTION, y: 0, z: -fz * STEP * HOLD_REACTION }, true);
       }
     });
-  }
-
-  function doYank(i) {
-    const p = players[i];
-    const me = p.body.translation();
-    const fx = Math.sin(p.facing), fz = Math.cos(p.facing);
-    // pull whichever neighbour you're facing most (an end of the chain only has one)
-    let target = -1, bestScore = -Infinity;
-    for (const j of [i - 1, i + 1]) {
-      if (j < 0 || j >= n) continue;
-      const t = players[j].body.translation();
-      const d = Math.hypot(t.x - me.x, t.z - me.z) || 1;
-      const score = (fx * (t.x - me.x) + fz * (t.z - me.z)) / d;
-      if (score > bestScore) { bestScore = score; target = j; }
-    }
-    if (target < 0) return;
-    const other = players[target];
-    const t = other.body.translation();
-    const dx = me.x - t.x, dy = me.y - t.y, dz = me.z - t.z;
-    const d = Math.hypot(dx, dy, dz) || 1;
-    const v = other.body.linvel(), mv = p.body.linvel();
-    other.body.setLinvel({ x: v.x + (dx / d) * YANK_SPEED, y: v.y + 3, z: v.z + (dz / d) * YANK_SPEED }, true);
-    other.stun = YANK_STUN;
-    p.body.setLinvel({ x: mv.x - (dx / d) * 2, y: mv.y, z: mv.z - (dz / d) * 2 }, true); // small recoil
-    p.cooldown = YANK_COOLDOWN;
   }
 
   const setPinned = (body, pinned) =>
@@ -473,17 +445,15 @@ export function createSim(n) {
     const inp = p.input;
     if (inp.grab) {
       if (p.held < 0 && !p.prevGrab) p.held = pickCrate(p);
-      if (p.held >= 0) { // too far away (yanked, say)? let go
+      if (p.held >= 0) { // too far away (shoved by a guard, say)? let go
         const t = p.body.translation(), c = crates[p.held].body.translation();
         if (Math.hypot(t.x - c.x, t.y - c.y, t.z - c.z) > GRAB_DROP_DIST) p.held = -1;
       }
     } else {
       p.held = -1;
     }
-    if (p.cooldown > 0) p.cooldown--;
-    if (inp.yank && !p.prevYank && p.cooldown === 0) doYank(i);
     if (inp.tie && !p.prevTie) toggleTie(i);
-    p.prevGrab = inp.grab; p.prevYank = inp.yank; p.prevTie = inp.tie;
+    p.prevGrab = inp.grab; p.prevTie = inp.tie;
   }
 
   // Safety net: a rope can never really be longer than ROPE_LENGTH, so if two neighbours drift
@@ -509,7 +479,7 @@ export function createSim(n) {
     for (const p of players) {
       p.body.setTranslation({ x: p.spawn.x, y: 1.2, z: p.spawn.z }, true);
       p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      p.held = -1; p.cooldown = 0; p.stun = 0;
+      p.held = -1; p.stun = 0;
     }
     ropes.forEach((segs, r) => segs.forEach((rb, i) => {
       rb.setTranslation(ropeRest(r, i), true);
@@ -561,11 +531,10 @@ export function createSim(n) {
       d[o + 3] = r2(v.x); d[o + 4] = r2(v.y); d[o + 5] = r2(v.z);
       d[o + 6] = round3(p.facing);
       d[o + 7] = r2(p.input.x); d[o + 8] = r2(p.input.z);
-      d[o + 9] = p.input.jump ? 1 : 0; d[o + 10] = p.input.grab ? 1 : 0;
-      d[o + 11] = p.input.yank ? 1 : 0; d[o + 12] = p.input.tie ? 1 : 0;
-      d[o + 13] = p.held;
-      d[o + 14] = p.prevGrab ? 1 : 0; d[o + 15] = p.prevYank ? 1 : 0; d[o + 16] = p.prevTie ? 1 : 0;
-      d[o + 17] = p.cooldown; d[o + 18] = p.stun;
+      d[o + 9] = p.input.jump ? 1 : 0; d[o + 10] = p.input.grab ? 1 : 0; d[o + 11] = p.input.tie ? 1 : 0;
+      d[o + 12] = p.held;
+      d[o + 13] = p.prevGrab ? 1 : 0; d[o + 14] = p.prevTie ? 1 : 0;
+      d[o + 15] = p.stun;
     });
     pinSeg.forEach((k, r) => { d[S.pinOff + r] = k; });
     ropes.forEach((segs, r) => segs.forEach((b, i) => {
@@ -612,10 +581,10 @@ export function createSim(n) {
       const o = i * S.PN;
       setBody(p.body, d, o, false, null);
       p.facing = d[o + 6];
-      p.input = { x: d[o + 7], z: d[o + 8], jump: d[o + 9] === 1, grab: d[o + 10] === 1, yank: d[o + 11] === 1, tie: d[o + 12] === 1 };
-      p.held = d[o + 13];
-      p.prevGrab = d[o + 14] === 1; p.prevYank = d[o + 15] === 1; p.prevTie = d[o + 16] === 1;
-      p.cooldown = d[o + 17]; p.stun = d[o + 18];
+      p.input = { x: d[o + 7], z: d[o + 8], jump: d[o + 9] === 1, grab: d[o + 10] === 1, tie: d[o + 11] === 1 };
+      p.held = d[o + 12];
+      p.prevGrab = d[o + 13] === 1; p.prevTie = d[o + 14] === 1;
+      p.stun = d[o + 15];
     });
     for (let r = 0; r < n - 1; r++) { // tied-off segments are fixed bodies, so switch body types before loading them
       const want = d[S.pinOff + r];
@@ -654,7 +623,6 @@ export function createSim(n) {
       d[o + 3] = round3(q.x); d[o + 4] = round3(q.y); d[o + 5] = round3(q.z); d[o + 6] = round3(q.w);
     });
     pinSeg.forEach((k, r) => { d[L.kOff + r] = k; });
-    players.forEach((p, i) => { d[L.fOff + i] = p.cooldown / YANK_COOLDOWN; });
     crates.forEach((_, i) => { d[L.hOff + i] = holdersOf(i).length; });
     guards.forEach((g, i) => {
       const t = g.body.translation(), o = L.gOff + i * 5;

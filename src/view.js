@@ -234,9 +234,6 @@ export function createView(n, localIndex = -1, profiles = []) {
         const o = L.rOff + (r * ROPE_SEGMENTS + k) * 3;
         knots[r].position.set(d[o], d[o + 1], d[o + 2]);
       }
-      // flash when either end of this rope has just yanked
-      const flash = Math.max(d[L.fOff + r], d[L.fOff + r + 1]);
-      ropeMeshes[r].material.emissiveIntensity = Math.max(0, (flash - 0.7) / 0.3) * 0.9;
     }
   }
 

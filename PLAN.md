@@ -4,11 +4,11 @@ Co-op "friendslop" heist game. 2-4 crooks are tied together by one physics rope 
 Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), hosted free on GitHub Pages.
 
 ## Design pillars
-1. **The rope is a tool.** Swing across gaps, lower a friend down a vent, yank someone out of a laser, wrap it round a pillar.
+1. **The rope is a tool.** Swing across gaps, lower a friend down a vent, wrap it round a pillar.
 2. **The rope is a liability.** It snags on doors, knocks over vases, trips guards. Too much tension sets off alarms.
 3. **Wobbly loot.** Oversized stolen items (giant painting, grandfather clock, a live pig) must be carried together.
 4. **Guards react to the rope.** They can grab and reel you in; you can tie them up.
-5. **Dead-simple controls.** Move, jump, grab, yank. Complexity comes from friends, not buttons.
+5. **Dead-simple controls.** Move, jump, grab, tie. Complexity comes from friends, not buttons.
 
 ## Tech
 - Vite + Three.js (low-poly flat-shaded look) + Rapier WASM (`@dimforge/rapier3d-compat`)
@@ -23,10 +23,10 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
   - Known gaps: other players are predicted by holding their last input, so they visibly correct when they change direction under high lag; no mid-game join; no host migration; no TURN server (some strict networks will fail to connect); JSON snapshots (about 134 KB/s host upload at 4 players, could go binary); only tested with simulated lag on one machine.
 - [x] **Phase 2: Core verbs.** All three work in the simulation, are part of the rollback state, and sync online.
   - **Grab (hold E):** pick up the nearest crate and carry it in front of you. Mass is size^3 x density. Light crates are a one-person carry; the gold safe (4.5) can't be lifted by one player (they can only drag it slowly) and needs two holders. Heavy loads slow you down and drag you.
-  - **Yank (F):** pulls the neighbour you're facing toward you. 1 second cooldown, and the target briefly loses steering so it carries. Holding the key fires once.
+  - **Yank (removed after playtesting feedback):** the F key that pulled your neighbour toward you was cut. The stun it used is still used when a guard shoves you.
   - **Tie (Q):** pins the loose rope segment nearest a pillar to its face (a fixed body, so the rope becomes a real anchor). Q again near the knot unties.
   - Controls: P1 `WASD Space E F Q`, local P2 `Arrows Enter . / ,`. Online, either hand works.
-  - Rough edges: no kill zones or alarms yet, tie-off only works on the two pillars, held crates can clip the rope, and the yank is symmetric (no aiming).
+  - Rough edges: no kill zones or alarms yet, tie-off only works on the two pillars, held crates can clip the rope.
 - [x] **Phase 3: Heist level ("The Museum").** Start in the green getaway zone, sneak through the front door and the hall, past the inner gap into the vault, and carry the gold safe (two players) back to the zone.
   - **Guards (3):** loop through waypoints, pause and look around at each one. Vision cone (8 m, about 80 degrees) with line of sight: walls and crates block it, the door gap does not. Seeing a player fills a shared ALERT meter; seeing only the rope fills it slower. After 0.6 s of continuous sight a guard chases at 3.6 u/s (players walk at 5), shoves you on contact (alert +15) and gives up 2.5 s after losing sight.
   - **Rules:** win when the safe sits in the zone for half a second. Lose when ALERT reaches 100 or the 2:30 timer runs out. The round restarts by itself 10 s after either, so clients need no button (R still resets on the host).

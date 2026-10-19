@@ -21,16 +21,16 @@ const anyDown = (codes) => codes.some((c) => keysDown.has(c));
 function readInput(scheme) {
   const x = (anyDown(scheme.right) ? 1 : 0) - (anyDown(scheme.left) ? 1 : 0);
   const z = (anyDown(scheme.down) ? 1 : 0) - (anyDown(scheme.up) ? 1 : 0);
-  return { x, z, jump: anyDown(scheme.jump), grab: anyDown(scheme.grab), yank: anyDown(scheme.yank), tie: anyDown(scheme.tie) };
+  return { x, z, jump: anyDown(scheme.jump), grab: anyDown(scheme.grab), tie: anyDown(scheme.tie) };
 }
-const SCHEME_A = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], jump: ['Space'], grab: ['KeyE'], yank: ['KeyF'], tie: ['KeyQ'] };
-const SCHEME_B = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Enter'], grab: ['Period'], yank: ['Slash'], tie: ['Comma'] };
+const SCHEME_A = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], jump: ['Space'], grab: ['KeyE'], tie: ['KeyQ'] };
+const SCHEME_B = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Enter'], grab: ['Period'], tie: ['Comma'] };
 // online you only control one player, so either hand works
 const SCHEME_ONLINE = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-  jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], yank: ['KeyF', 'Slash'], tie: ['KeyQ', 'Comma'],
+  jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], tie: ['KeyQ', 'Comma'],
 };
-const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>F</b> yank rope &middot; <b>Q</b> tie to pillar &middot; <b>1-4</b> emotes ' + EMOTES.join(' ');
+const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>Q</b> tie rope to pillar &middot; <b>1-4</b> emotes ' + EMOTES.join(' ');
 
 // ---------- emotes ----------
 const EMOTE_COOLDOWN_MS = 700;
@@ -129,7 +129,7 @@ function startHostLoop({ n, net, local, hud, profiles }) {
       for (let i = 2; i < n; i++) {
         let w = wander.get(i);
         if (!w || performance.now() > w.until) {
-          w = { x: Math.random() * 2 - 1, z: Math.random() * 2 - 1, jump: Math.random() < 0.15, grab: false, yank: false, tie: false, until: performance.now() + 800 + Math.random() * 1500 };
+          w = { x: Math.random() * 2 - 1, z: Math.random() * 2 - 1, jump: Math.random() < 0.15, grab: false, tie: false, until: performance.now() + 800 + Math.random() * 1500 };
           wander.set(i, w);
         }
         sim.players[i].input = w;
@@ -323,8 +323,8 @@ $('in-name').addEventListener('keydown', (e) => e.stopPropagation()); // typing 
 $('in-name').addEventListener('keyup', (e) => e.stopPropagation());
 buildProfilePicker();
 const LOCAL_PROFILES = [{ name: 'P1', color: 0 }, { name: 'P2', color: 1 }, { name: 'P3', color: 2 }, { name: 'P4', color: 3 }];
-$('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
-$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
+$('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
+$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
 
 // share links look like ?join=ABCD
 const joinParam = new URLSearchParams(location.search).get('join');
