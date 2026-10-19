@@ -49,7 +49,6 @@ const ALERT_DECAY = 0.1; // per tick when nobody is seen
 const ALERT_CONTACT = 15; // a chasing guard catching you
 const CONTACT_COOLDOWN = 60;
 
-export const PLAYER_COLORS = [0xff7a59, 0x59c3ff, 0x7be07b, 0xf2d34f];
 
 // Shared with the renderer so both sides build the same level.
 // "The Museum": spawn and getaway zone in the south, a walled building to the north with a door in

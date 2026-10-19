@@ -1,15 +1,17 @@
-import { initPhysics, createSim, layout, inputToArray, inputFromArray, STEP, MAX_PLAYERS, PLAYER_COLORS } from './sim.js';
+import { initPhysics, createSim, layout, inputToArray, inputFromArray, STEP, MAX_PLAYERS } from './sim.js';
 import { createView } from './view.js';
 import { createHost, joinRoom } from './net.js';
+import { PALETTE, EMOTES, colorCss, cleanName, loadSavedProfile, saveProfile } from './profile.js';
 
 const $ = (id) => document.getElementById(id);
-const colorCss = (i) => '#' + PLAYER_COLORS[i].toString(16).padStart(6, '0');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // ---------- input ----------
 const keysDown = new Set();
 addEventListener('keydown', (e) => {
   keysDown.add(e.code);
   if (e.code === 'KeyR' && game?.role !== 'client' && game?.sim) game.sim.resetAll();
+  if (/^Digit[1-4]$/.test(e.code) && !e.repeat) emote(Number(e.code.slice(5)) - 1);
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => keysDown.delete(e.code));
@@ -28,7 +30,17 @@ const SCHEME_ONLINE = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], yank: ['KeyF', 'Slash'], tie: ['KeyQ', 'Comma'],
 };
-const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>F</b> yank rope &middot; <b>Q</b> tie to pillar';
+const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>F</b> yank rope &middot; <b>Q</b> tie to pillar &middot; <b>1-4</b> emotes ' + EMOTES.join(' ');
+
+// ---------- emotes ----------
+const EMOTE_COOLDOWN_MS = 700;
+let lastEmote = 0;
+function emote(id) {
+  const now = performance.now();
+  if (!game?.sendEmote || now - lastEmote < EMOTE_COOLDOWN_MS) return;
+  lastEmote = now;
+  game.sendEmote(id);
+}
 
 // ---------- UI ----------
 let game = null; // { sim?, view, hostTick?, ... } exposed for debugging
@@ -59,15 +71,50 @@ function updateGameHud(d, L) {
     $('banner-sub').textContent = `${status === 1 ? 'You got away with the safe' : LOSS_REASON[reason] || ''}. Restarting shortly...`;
   }
 }
-function renderPlayerDots(count, mine = -1) {
-  $('players').innerHTML = Array.from({ length: MAX_PLAYERS }, (_, i) =>
-    `<div class="dot" style="${i < count ? `background:${colorCss(i)}` : ''}${i === mine ? ';outline:3px solid #fff' : ''}"></div>`).join('');
+/** The lobby list. Names are other people's input, so they only ever go in through textContent. */
+function renderLobby(players, mine = -1) {
+  $('players').replaceChildren(...Array.from({ length: MAX_PLAYERS }, (_, i) => {
+    const row = document.createElement('div');
+    row.className = players[i] ? 'prow' : 'prow empty';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    if (players[i]) dot.style.background = colorCss(players[i].color);
+    const name = document.createElement('span');
+    name.textContent = players[i] ? players[i].name + (i === 0 ? ' (host)' : '') + (i === mine ? ' (you)' : '') : 'waiting for a friend...';
+    row.append(dot, name);
+    return row;
+  }));
+}
+
+// ---------- your name and colour ----------
+let selectedColor = 0;
+function readProfile() {
+  const profile = { name: cleanName($('in-name').value, ''), color: selectedColor };
+  saveProfile(profile);
+  return profile;
+}
+function buildProfilePicker() {
+  const saved = loadSavedProfile();
+  $('in-name').value = saved.name;
+  selectedColor = saved.color;
+  const box = $('swatches');
+  PALETTE.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sw';
+    b.style.background = colorCss(i);
+    b.setAttribute('aria-label', `Colour ${i + 1}`);
+    b.onclick = () => { selectedColor = i; refresh(); };
+    box.append(b);
+  });
+  const refresh = () => [...box.children].forEach((b, i) => b.classList.toggle('on', i === selectedColor));
+  refresh();
 }
 
 // ---------- host / local loop (runs the physics) ----------
-function startHostLoop({ n, net, local, hud }) {
+function startHostLoop({ n, net, local, hud, profiles }) {
   const sim = createSim(n);
-  const view = createView(n, local ? -1 : 0);
+  const view = createView(n, local ? -1 : 0, profiles);
   const L = layout(n);
   hideMenu(hud);
 
@@ -106,7 +153,8 @@ function startHostLoop({ n, net, local, hud }) {
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
   requestAnimationFrame(frame);
-  game = window.__game = { role: local ? 'local' : 'host', sim, view, hostTick, update, net, acks }; // window hook is for console testing
+  const sendEmote = (id) => (net ? net.emote(id) : view.showEmote(0, id)); // online the host relays it to everyone, itself included
+  game = window.__game = { role: local ? 'local' : 'host', sim, view, hostTick, update, net, acks, sendEmote, profiles }; // window hook is for console testing
   return sim;
 }
 
@@ -118,10 +166,10 @@ const SMOOTH_TIME = 0.1; // seconds for a correction to fade out
 const TELEPORT_DIST = 3; // bigger jumps than this (a reset, say) snap instead of fading
 const MAX_REPLAY = 60; // ticks
 
-function startClientLoop({ n, index, conn, hooks }) {
+function startClientLoop({ n, index, conn, hooks, profiles }) {
   const sim = createSim(n);
-  const view = createView(n, index);
-  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(index)}">You are player ${index + 1}</span><br>${CONTROLS_HINT}`);
+  const view = createView(n, index, profiles);
+  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(profiles[index].color)}">You are ${esc(profiles[index].name)}</span><br>${CONTROLS_HINT}`);
 
   const L = layout(n);
   // which entries of the pose array are positions (x y z) and so can carry a smoothing offset
@@ -167,6 +215,7 @@ function startClientLoop({ n, index, conn, hooks }) {
     for (let i = 0; i < L.size; i++) offset[i] = isPos[i] && worst < TELEPORT_DIST ? shown[i] - pose[i] : 0;
   }
   hooks.onSnap = onSnapshot;
+  hooks.onEmote = (i, e) => { if (i !== index) view.showEmote(i, e); }; // our own already popped up the moment we pressed the key
 
   function update(now) {
     const dt = Math.min((now - last) / 1000, 0.1);
@@ -185,7 +234,8 @@ function startClientLoop({ n, index, conn, hooks }) {
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
   requestAnimationFrame(frame);
-  game = window.__game = { role: 'client', sim, view, conn, update, clientTick, stats, offset, get seq() { return seq; } };
+  const sendEmote = (id) => { view.showEmote(index, id); conn.sendEmote(id); };
+  game = window.__game = { role: 'client', sim, view, conn, update, clientTick, stats, offset, sendEmote, profiles, get seq() { return seq; } };
 }
 
 // ---------- menu wiring ----------
@@ -195,10 +245,10 @@ async function hostOnline() {
   try {
     let net;
     net = await createHost({
-      onLobby(count) {
-        renderPlayerDots(count, 0);
-        $('lobby-status').textContent = count < 2 ? 'Waiting for friends to join…' : `${count} players ready`;
-        $('b-start').disabled = count < 2;
+      onLobby(players) {
+        renderLobby(players, 0);
+        $('lobby-status').textContent = players.length < 2 ? 'Waiting for friends to join…' : `${players.length} players ready`;
+        $('b-start').disabled = players.length < 2;
       },
       onInput(i, d, q) {
         if (!game?.sim) return;
@@ -206,17 +256,18 @@ async function hostOnline() {
         game.acks[i] = q;
       },
       onLeave(i) { if (game?.sim) game.sim.players[i].input = inputFromArray([0, 0, 0, 0, 0, 0]); },
-    });
+      onEmote(i, e) { game?.view?.showEmote(i, e); },
+    }, readProfile());
     const link = `${location.origin}${location.pathname}?join=${net.code}`;
     $('lobby-code').textContent = net.code;
     $('lobby-link').textContent = link;
     $('lobby-title').textContent = 'Share this code (or link)';
-    renderPlayerDots(1, 0);
+    renderLobby(net.profiles(), 0);
     $('lobby-status').textContent = 'Waiting for friends to join…';
     $('b-start').disabled = true;
     $('b-start').onclick = () => {
-      const n = net.start();
-      startHostLoop({ n, net, local: false, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(0)}">You are player 1</span> &nbsp; R: reset<br>${CONTROLS_HINT}` });
+      const { n, players } = net.start();
+      startHostLoop({ n, net, local: false, profiles: players, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(players[0].color)}">You are ${esc(players[0].name)}</span> &nbsp; R: reset<br>${CONTROLS_HINT}` });
     };
     showPanel('p-lobby');
   } catch (err) {
@@ -231,22 +282,23 @@ async function joinOnline(code) {
   if (code.trim().length !== 4) return showError('Enter the 4-letter room code');
   $('b-join').disabled = true;
   $('b-join').textContent = 'Joining…';
-  const hooks = { onSnap: () => {} }; // filled in once the game starts
+  const hooks = { onSnap: () => {}, onEmote: () => {} }; // filled in once the game starts
   let conn = null;
   try {
     conn = await joinRoom(code, {
-      onLobby(count) {
-        renderPlayerDots(count);
-        $('lobby-status').textContent = `${count} players in the room. Waiting for the host to start…`;
+      onLobby(players) {
+        renderLobby(players);
+        $('lobby-status').textContent = `${players.length} players in the room. Waiting for the host to start…`;
       },
-      onStart({ n, index }) { startClientLoop({ n, index, conn, hooks }); },
+      onStart({ n, index, players }) { startClientLoop({ n, index, conn, hooks, profiles: players }); },
       onSnap(d, ack) { hooks.onSnap(d, ack); },
+      onEmote(i, e) { hooks.onEmote(i, e); },
       onClose() {
         $('hud').innerHTML += '<br><b style="color:#ff8a8a">Disconnected from host.</b> Reload to rejoin.';
         if (!game) { showPanel('p-main'); showError('Host closed the room'); }
       },
       onFull() { showPanel('p-main'); showError('That room is full or already started'); },
-    });
+    }, readProfile());
     $('lobby-title').textContent = 'Joined room';
     $('lobby-code').textContent = code.trim().toUpperCase();
     $('lobby-link').textContent = '';
@@ -267,8 +319,12 @@ $('b-host').onclick = hostOnline;
 $('b-join').onclick = () => joinOnline($('in-code').value);
 $('in-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinOnline($('in-code').value); e.stopPropagation(); });
 $('in-code').addEventListener('keyup', (e) => e.stopPropagation());
-$('b-local').onclick = () => startHostLoop({ n: 2, local: true, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
-$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
+$('in-name').addEventListener('keydown', (e) => e.stopPropagation()); // typing a name must not trigger emotes or movement
+$('in-name').addEventListener('keyup', (e) => e.stopPropagation());
+buildProfilePicker();
+const LOCAL_PROFILES = [{ name: 'P1', color: 0 }, { name: 'P2', color: 1 }, { name: 'P3', color: 2 }, { name: 'P4', color: 3 }];
+$('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
+$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
 
 // share links look like ?join=ABCD
 const joinParam = new URLSearchParams(location.search).get('join');

@@ -37,8 +37,14 @@
     #error { color: #ff8a8a; font-size: 13px; min-height: 18px; margin-top: 10px; text-align: center; }
     .panel { display: none; }
     .panel.show { display: block; }
-    #players { display: flex; gap: 8px; justify-content: center; margin: 12px 0; }
-    .dot { width: 26px; height: 26px; border-radius: 50%; background: #3a4170; }
+    #players { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+    .prow { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: #14161f; font-weight: 600; }
+    .prow.empty { opacity: .4; font-weight: 400; }
+    .dot { width: 18px; height: 18px; border-radius: 50%; background: #3a4170; flex: none; }
+    input.namebox { font-size: 16px; letter-spacing: 0; text-transform: none; text-align: left; padding: 10px 12px; margin: 0 0 8px; }
+    #swatches { display: flex; gap: 8px; justify-content: space-between; margin-bottom: 14px; }
+    button.sw { width: 30px; height: 30px; padding: 0; margin: 0; border-radius: 50%; border: 3px solid transparent; }
+    button.sw.on { border-color: #fff; box-shadow: 0 0 0 2px #0008; }
   </style>
 </head>
 <body>
@@ -58,6 +64,8 @@
       <p class="sub">Rob the place. Don't untie yourselves.</p>
 
       <div id="p-main" class="panel show">
+        <input id="in-name" class="namebox" maxlength="12" placeholder="Your name" autocomplete="off" />
+        <div id="swatches"></div>
         <button id="b-host">Host a game</button>
         <input id="in-code" maxlength="4" placeholder="CODE" autocomplete="off" />
         <button id="b-join" class="alt">Join with code</button>

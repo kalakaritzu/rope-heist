@@ -38,7 +38,14 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
     - Carrying the safe was slower than a chasing guard (2.3 vs 3.6 units/s), so any chase while carrying lost the run. Tuned: carry slowdown 0.2 -> 0.1, carrier drag 0.3 -> 0.15, chase speed 3.6 -> 3.3, view distance 8 -> 7.
     - After tuning, a crew that never stops wins only for start times in a 2-3 s window per 24 s cycle (about 32 s of play, alert peaks 18-86%). Timing the front door (about 2 s wait) and the hall (under 1 s) is easy. Hard but fair for a bot; needs real human playtesting before more tuning.
     - Ideas if it proves too hard: offset the guard phases, add hiding spots, let the rope or a thrown crate distract guards.
-- [ ] **Phase 5: Identity.** Nametags, colours, emotes. (Proximity voice chat was dropped: friends use their own voice app.)
+- [x] **Phase 5: Identity.** Names, colours, nametags and emotes. (Proximity voice chat was dropped: friends use their own voice app.)
+  - **Menu:** name box and 8 colour swatches, remembered between visits (browser storage, optional). The lobby lists everyone by name and colour.
+  - **Colours:** if two people pick the same one, the host gives the later joiner the next free colour, so everyone always looks different.
+  - **Names:** cleaned on the host (markup characters and control characters removed, 12 characters max, emoji never split, empty becomes "Player N"). They are only ever drawn through text nodes or the canvas, never as HTML.
+  - **Nametags:** a dark plate with a border in the player's colour floats above each head; your own head also has the white arrow.
+  - **Emotes:** keys 1-4 pop a bubble (thumbs up, laughing, scared, SOS) over your head for 2.5 s. Your own shows instantly; the host relays it to everyone, ignores spam (300 ms) and invalid ids. Cosmetic only, not part of the simulation or rollback state.
+  - Tested with a host and two joiners who all picked the same colour (resolved to three different ones), a hostile name, a very long name with an emoji, emotes both ways, spam and bad ids.
+  - Not done: choosing a colour after entering the lobby, custom emotes, a text chat.
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
 - [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.
 

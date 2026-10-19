@@ -1,11 +1,63 @@
 // Rendering. Draws the world from a snapshot array (see layout() in sim.js); has no physics of its own.
 import * as THREE from 'three';
-import { LEVEL, PLAYER_COLORS, ROPE_SEGMENTS, VIEW_DIST, VIEW_HALF_ANGLE, layout } from './sim.js';
+import { LEVEL, ROPE_SEGMENTS, VIEW_DIST, VIEW_HALF_ANGLE, layout } from './sim.js';
+import { EMOTES, colorCss, colorHex } from './profile.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
-export function createView(n, localIndex = -1) {
+const EMOTE_SECONDS = 2.5;
+
+/** A name on a rounded dark plate with a border in the player's colour. Drawn through the canvas, so names are never parsed as HTML. */
+function makeNametag(name, color) {
+  const c = document.createElement('canvas');
+  c.width = 320; c.height = 80;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(15, 17, 26, 0.78)';
+  g.strokeStyle = color;
+  g.lineWidth = 6;
+  g.beginPath();
+  g.roundRect(5, 5, 310, 70, 24);
+  g.fill();
+  g.stroke();
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let size = 40;
+  g.font = `bold ${size}px system-ui, sans-serif`;
+  while (g.measureText(name).width > 280 && size > 16) { size -= 2; g.font = `bold ${size}px system-ui, sans-serif`; }
+  g.fillText(name, 160, 42);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.scale.set(2.4, 0.6, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+/** One speech bubble per emote, made once and reused. */
+function makeEmoteTextures() {
+  return EMOTES.map((emoji) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgba(255, 255, 255, 0.94)';
+    g.beginPath();
+    g.arc(64, 60, 54, 0, Math.PI * 2);
+    g.fill();
+    g.font = '70px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(emoji, 64, 66);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  });
+}
+
+/** profiles: [{ name, color }] per player, color is an index into PALETTE. */
+export function createView(n, localIndex = -1, profiles = []) {
   const L = layout(n);
+  const profile = (i) => profiles[i] ?? { name: `Player ${i + 1}`, color: i };
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -62,7 +114,7 @@ export function createView(n, localIndex = -1) {
   // players
   const playerMeshes = [];
   for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.7, 4, 12), flat(PLAYER_COLORS[i]));
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.7, 4, 12), flat(colorHex(profile(i).color)));
     m.castShadow = true;
     const nose = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.3), flat(0xffffff)); // shows facing
     nose.position.set(0, 0.25, 0.42);
@@ -93,6 +145,23 @@ export function createView(n, localIndex = -1) {
     return g;
   });
 
+  // nametags and emote bubbles float above everyone's head
+  const nametags = Array.from({ length: n }, (_, i) => {
+    const t = makeNametag(profile(i).name, colorCss(profile(i).color));
+    scene.add(t);
+    return t;
+  });
+  const emoteTextures = makeEmoteTextures();
+  const emoteSprites = Array.from({ length: n }, () => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: emoteTextures[0], transparent: true, depthTest: false }));
+    s.scale.set(1.1, 1.1, 1);
+    s.renderOrder = 11;
+    s.visible = false;
+    scene.add(s);
+    return s;
+  });
+  const emoteUntil = new Array(n).fill(0);
+
   // arrow above your own head so you can find yourself in the pile
   const marker = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   marker.rotation.x = Math.PI;
@@ -119,6 +188,13 @@ export function createView(n, localIndex = -1) {
   });
 
   const playerPos = Array.from({ length: n }, () => new THREE.Vector3());
+
+  /** Pop an emote bubble over a player. `now` is performance.now() in ms. */
+  function showEmote(i, emoteId, now = performance.now()) {
+    if (i < 0 || i >= n || !emoteTextures[emoteId]) return;
+    emoteSprites[i].material.map = emoteTextures[emoteId];
+    emoteUntil[i] = now + EMOTE_SECONDS * 1000;
+  }
 
   function apply(d) {
     for (let i = 0; i < n; i++) {
@@ -181,12 +257,25 @@ export function createView(n, localIndex = -1) {
     camera.position.copy(camPos);
     camera.lookAt(camTarget);
 
+    for (let i = 0; i < n; i++) {
+      const p = playerPos[i];
+      nametags[i].position.set(p.x, p.y + 1.3, p.z);
+      const left = emoteUntil[i] - now;
+      const s = emoteSprites[i];
+      s.visible = left > 0;
+      if (s.visible) {
+        const pop = Math.min(1, Math.max(0, (EMOTE_SECONDS * 1000 - left) / 150)); // quick pop-in, never outside 0..1
+        s.scale.setScalar(1.1 * (0.5 + 0.5 * pop));
+        s.material.opacity = Math.min(1, left / 400); // fade out at the end
+        s.position.set(p.x, p.y + 2.45 + Math.sin(now / 250) * 0.06, p.z);
+      }
+    }
     if (localIndex >= 0) {
       const p = playerPos[localIndex];
-      marker.position.set(p.x, p.y + 1.45 + Math.sin(now / 200) * 0.08, p.z);
+      marker.position.set(p.x, p.y + 1.8 + Math.sin(now / 200) * 0.08, p.z);
     }
     renderer.render(scene, camera);
   }
 
-  return { apply, render, renderer, scene, camera, playerPos };
+  return { apply, render, showEmote, renderer, scene, camera, playerPos };
 }
