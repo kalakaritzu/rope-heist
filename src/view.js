@@ -66,11 +66,20 @@ export function createView(n, localIndex = -1) {
   scene.add(marker);
 
   // ropes: one tube per rope, rebuilt every frame from the segment positions
-  const ropeMaterial = new THREE.MeshStandardMaterial({ color: 0xe8d9a8, roughness: 1 });
   const ropeMeshes = Array.from({ length: L.ropes }, () => {
-    const m = new THREE.Mesh(new THREE.BufferGeometry(), ropeMaterial);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xe8d9a8, roughness: 1, emissive: 0xffffff, emissiveIntensity: 0 });
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), mat);
     m.castShadow = true;
     m.frustumCulled = false;
+    scene.add(m);
+    return m;
+  });
+  // a knot where the rope is tied to a pillar
+  const knotMaterial = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 1 });
+  const knots = Array.from({ length: L.ropes }, () => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), knotMaterial);
+    m.castShadow = true;
+    m.visible = false;
     scene.add(m);
     return m;
   });
@@ -99,6 +108,18 @@ export function createView(n, localIndex = -1) {
       const o = L.cOff + i * 7;
       crateMeshes[i].position.set(d[o], d[o + 1], d[o + 2]);
       crateMeshes[i].quaternion.set(d[o + 3], d[o + 4], d[o + 5], d[o + 6]).normalize();
+      crateMeshes[i].material.emissive.setHex(d[L.hOff + i] > 0 ? 0x66561a : 0x000000); // glow while held
+    }
+    for (let r = 0; r < L.ropes; r++) {
+      const k = d[L.kOff + r];
+      knots[r].visible = k >= 0;
+      if (k >= 0) {
+        const o = L.rOff + (r * ROPE_SEGMENTS + k) * 3;
+        knots[r].position.set(d[o], d[o + 1], d[o + 2]);
+      }
+      // flash when either end of this rope has just yanked
+      const flash = Math.max(d[L.fOff + r], d[L.fOff + r + 1]);
+      ropeMeshes[r].material.emissiveIntensity = Math.max(0, (flash - 0.7) / 0.3) * 0.9;
     }
   }
 

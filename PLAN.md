@@ -22,7 +22,12 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
 - [x] **Phase 4 (pulled forward): Multiplayer.** Rope is now a chain for 2-4 players. PeerJS room codes + share link, lobby, host-authoritative physics (60 Hz), 20 Hz snapshots, 100 ms interpolation on clients. Code split into `sim.js` / `view.js` / `net.js` / `main.js`.
   - **Client-side prediction (done):** each client runs its own copy of the sim. Host snapshots carry full state plus an input ack; the client rolls back, replays unacknowledged inputs, and fades the leftover error over 100 ms. Test with `?lag=100` on the joiner's URL (adds 100 ms each way). Measured at 200 ms round trip: own movement shows after 36 ms, median error 0.1 units, host and client converge to within 0.002 after everyone stops.
   - Known gaps: other players are predicted by holding their last input, so they visibly correct when they change direction under high lag; no mid-game join; no host migration; no TURN server (some strict networks will fail to connect); JSON snapshots (about 134 KB/s host upload at 4 players, could go binary); only tested with simulated lag on one machine.
-- [ ] **Phase 2: Core verbs.** Grab/carry objects, yank, tie rope around a pillar, camera polish.
+- [x] **Phase 2: Core verbs.** All three work in the simulation, are part of the rollback state, and sync online.
+  - **Grab (hold E):** pick up the nearest crate and carry it in front of you. Mass is size^3 x density. Light crates are a one-person carry; the gold safe (4.5) can't be lifted by one player (they can only drag it slowly) and needs two holders. Heavy loads slow you down and drag you.
+  - **Yank (F):** pulls the neighbour you're facing toward you. 1 second cooldown, and the target briefly loses steering so it carries. Holding the key fires once.
+  - **Tie (Q):** pins the loose rope segment nearest a pillar to its face (a fixed body, so the rope becomes a real anchor). Q again near the knot unties.
+  - Controls: P1 `WASD Space E F Q`, local P2 `Arrows Enter . / ,`. Online, either hand works.
+  - Rough edges: no kill zones or alarms yet, tie-off only works on the two pillars, held crates can clip the rope, and the yank is symmetric (no aiming).
 - [ ] **Phase 3: Heist level.** One building: entry, loot target, guard patrol, exit, timer, win/lose.
 - [ ] **Phase 5: Proximity voice + identity.** Voice chat, nametags, colours, emotes.
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.

@@ -1,4 +1,4 @@
-import { initPhysics, createSim, layout, STEP, MAX_PLAYERS, PLAYER_COLORS } from './sim.js';
+import { initPhysics, createSim, layout, inputToArray, inputFromArray, STEP, MAX_PLAYERS, PLAYER_COLORS } from './sim.js';
 import { createView } from './view.js';
 import { createHost, joinRoom } from './net.js';
 
@@ -19,15 +19,16 @@ const anyDown = (codes) => codes.some((c) => keysDown.has(c));
 function readInput(scheme) {
   const x = (anyDown(scheme.right) ? 1 : 0) - (anyDown(scheme.left) ? 1 : 0);
   const z = (anyDown(scheme.down) ? 1 : 0) - (anyDown(scheme.up) ? 1 : 0);
-  return { x, z, jump: anyDown(scheme.jump) };
+  return { x, z, jump: anyDown(scheme.jump), grab: anyDown(scheme.grab), yank: anyDown(scheme.yank), tie: anyDown(scheme.tie) };
 }
-const SCHEME_A = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], jump: ['Space'] };
-const SCHEME_B = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Enter'] };
+const SCHEME_A = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], jump: ['Space'], grab: ['KeyE'], yank: ['KeyF'], tie: ['KeyQ'] };
+const SCHEME_B = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['Enter'], grab: ['Period'], yank: ['Slash'], tie: ['Comma'] };
 // online you only control one player, so either hand works
 const SCHEME_ONLINE = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-  jump: ['Space', 'Enter'],
+  jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], yank: ['KeyF', 'Slash'], tie: ['KeyQ', 'Comma'],
 };
+const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>F</b> yank rope &middot; <b>Q</b> tie to pillar';
 
 // ---------- UI ----------
 let game = null; // { sim?, view, hostTick?, ... } exposed for debugging
@@ -64,7 +65,7 @@ function startHostLoop({ n, net, local, hud }) {
       for (let i = 2; i < n; i++) {
         let w = wander.get(i);
         if (!w || performance.now() > w.until) {
-          w = { x: Math.random() * 2 - 1, z: Math.random() * 2 - 1, jump: Math.random() < 0.15, until: performance.now() + 800 + Math.random() * 1500 };
+          w = { x: Math.random() * 2 - 1, z: Math.random() * 2 - 1, jump: Math.random() < 0.15, grab: false, yank: false, tie: false, until: performance.now() + 800 + Math.random() * 1500 };
           wander.set(i, w);
         }
         sim.players[i].input = w;
@@ -101,7 +102,7 @@ const MAX_REPLAY = 60; // ticks
 function startClientLoop({ n, index, conn, hooks }) {
   const sim = createSim(n);
   const view = createView(n, index);
-  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(index)}">You are player ${index + 1}</span> &nbsp; WASD / arrows + Space`);
+  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(index)}">You are player ${index + 1}</span><br>${CONTROLS_HINT}`);
 
   const L = layout(n);
   // which entries of the pose array are positions (x y z) and so can carry a smoothing offset
@@ -123,7 +124,7 @@ function startClientLoop({ n, index, conn, hooks }) {
     history.set(seq, input);
     history.delete(seq - MAX_REPLAY - 5);
     sim.players[index].input = input;
-    conn.sendInput([input.x, input.z, input.jump ? 1 : 0], seq);
+    conn.sendInput(inputToArray(input), seq);
     sim.step();
   }
 
@@ -180,10 +181,10 @@ async function hostOnline() {
       },
       onInput(i, d, q) {
         if (!game?.sim) return;
-        game.sim.players[i].input = { x: d[0], z: d[1], jump: !!d[2] };
+        game.sim.players[i].input = inputFromArray(d);
         game.acks[i] = q;
       },
-      onLeave(i) { if (game?.sim) game.sim.players[i].input = { x: 0, z: 0, jump: false }; },
+      onLeave(i) { if (game?.sim) game.sim.players[i].input = inputFromArray([0, 0, 0, 0, 0, 0]); },
     });
     const link = `${location.origin}${location.pathname}?join=${net.code}`;
     $('lobby-code').textContent = net.code;
@@ -194,7 +195,7 @@ async function hostOnline() {
     $('b-start').disabled = true;
     $('b-start').onclick = () => {
       const n = net.start();
-      startHostLoop({ n, net, local: false, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(0)}">You are player 1</span> &nbsp; WASD / arrows + Space &nbsp; R: reset` });
+      startHostLoop({ n, net, local: false, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(0)}">You are player 1</span> &nbsp; R: reset<br>${CONTROLS_HINT}` });
     };
     showPanel('p-lobby');
   } catch (err) {
@@ -245,8 +246,8 @@ $('b-host').onclick = hostOnline;
 $('b-join').onclick = () => joinOnline($('in-code').value);
 $('in-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinOnline($('in-code').value); e.stopPropagation(); });
 $('in-code').addEventListener('keyup', (e) => e.stopPropagation());
-$('b-local').onclick = () => startHostLoop({ n: 2, local: true, hud: '<b>ROPE HEIST</b> &mdash; local test<br><span style="color:#ff7a59">P1</span>: WASD + Space &nbsp; <span style="color:#59c3ff">P2</span>: Arrows + Enter &nbsp; R: reset' });
-$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves)<br><span style="color:#ff7a59">P1</span>: WASD + Space &nbsp; <span style="color:#59c3ff">P2</span>: Arrows + Enter &nbsp; R: reset' });
+$('b-local').onclick = () => startHostLoop({ n: 2, local: true, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
+$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, F yank, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, / yank, , tie' });
 
 // share links look like ?join=ABCD
 const joinParam = new URLSearchParams(location.search).get('join');
