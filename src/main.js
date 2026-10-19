@@ -1,7 +1,9 @@
-import { initPhysics, createSim, layout, inputToArray, inputFromArray, STEP, MAX_PLAYERS } from './sim.js';
+import { initPhysics, createSim, layout, inputToArray, inputFromArray, levelById, LEVELS, STEP, MAX_PLAYERS } from './sim.js';
 import { createView } from './view.js';
 import { createHost, joinRoom } from './net.js';
 import { createBots } from './bots.js';
+import { initAudio, setMuted, isMuted, sfx, createSoundObserver } from './audio.js';
+import { createDirector, saveScreenshot } from './director.js';
 import { PALETTE, EMOTES, colorCss, cleanName, loadSavedProfile, saveProfile } from './profile.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,9 +16,14 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyR' && game?.role === 'watch') game.bots.restart();
   else if (e.code === 'KeyR' && game?.role !== 'client' && game?.sim) game.sim.resetAll();
   if (/^Digit[1-4]$/.test(e.code) && !e.repeat) emote(Number(e.code.slice(5)) - 1);
+  if (e.code === 'KeyM' && !e.repeat) toggleMute();
+  if (e.code === 'KeyV' && !e.repeat && game?.fx) game.fx.director.start(game.fx.director.lastNow); // replay the last few seconds
+  if (e.code === 'KeyP' && !e.repeat && game?.fx) game.fx.shot = true; // save a screenshot
+  initAudio(); // browsers only allow sound after a key press or click
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => keysDown.delete(e.code));
+addEventListener('pointerdown', () => initAudio());
 addEventListener('blur', () => keysDown.clear());
 
 const anyDown = (codes) => codes.some((c) => keysDown.has(c));
@@ -32,7 +39,7 @@ const SCHEME_ONLINE = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], tie: ['KeyQ', 'Comma'],
 };
-const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>Q</b> tie rope to pillar &middot; <b>1-4</b> emotes ' + EMOTES.slice(0, 4).join(' ');
+const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>Q</b> tie rope to pillar &middot; <b>1-4</b> emotes ' + EMOTES.slice(0, 4).join(' ') + ' &middot; <b>V</b> replay &middot; <b>P</b> screenshot &middot; <b>M</b> mute';
 
 // ---------- emotes ----------
 const EMOTE_COOLDOWN_MS = 700;
@@ -52,22 +59,29 @@ function showPanel(id) {
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('show', p.id === id));
 }
 function showError(msg) { $('error').textContent = msg || ''; }
-function hideMenu(hud) {
+function hideMenu(hud, level = 0) {
+  $('objective').textContent = levelById(level).objective;
   $('menu').classList.add('hidden');
   $('hud').style.display = 'block';
   $('hud').innerHTML = hud;
   $('game').style.display = 'block';
+  $('mute').style.display = 'block';
+  $('mute').textContent = isMuted() ? '🔇' : '🔊';
 }
 
 const LOSS_REASON = { 1: 'The alarm went off', 2: 'Out of time' };
-/** Timer, alert meter and win/lose banner, read from the pose array's game section. */
-function updateGameHud(d, L) {
+/** Timer, alert meter, loot count, alarm flash and win/lose banner, read from the pose array's game section. */
+function updateGameHud(d, L, replaying = false) {
   const status = d[L.sOff], reason = d[L.sOff + 1], secs = d[L.sOff + 2], alert = d[L.sOff + 3];
+  const alarm = d[L.sOff + 4], delivered = d[L.sOff + 5];
+  const quota = levelById(L.levelId).quota;
+  $('lootline').textContent = `Loot delivered: ${delivered} / ${quota}`;
+  $('alarmflash').style.opacity = alarm > 0 && status === 0 ? String(0.18 + 0.18 * Math.sin(alarm / 5)) : '0';
   $('timer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
   $('timer').classList.toggle('low', secs <= 20 && status === 0);
   $('alertfill').style.width = `${alert}%`;
   const banner = $('banner');
-  banner.className = status === 0 ? '' : `show ${status === 1 ? 'won' : 'lost'}`;
+  banner.className = status === 0 || replaying ? '' : `show ${status === 1 ? 'won' : 'lost'}`;
   if (status !== 0) {
     $('banner-title').textContent = status === 1 ? 'HEIST COMPLETE' : 'BUSTED';
     $('banner-sub').textContent = `${status === 1 ? 'You got away with the safe' : LOSS_REASON[reason] || ''}. Restarting shortly...`;
@@ -90,6 +104,19 @@ function renderLobby(players, mine = -1) {
 
 // ---------- your name and colour ----------
 let selectedColor = 0;
+let selectedLevel = 0;
+function buildLevelPicker() {
+  const select = $('level');
+  LEVELS.forEach((lv, i) => select.append(new Option(`${lv.name}${lv.bots ? '' : ' (hard)'}`, String(i))));
+  const show = () => {
+    selectedLevel = Number(select.value);
+    $('level-blurb').textContent = levelById(selectedLevel).blurb;
+    $('b-watch').disabled = !levelById(selectedLevel).bots;
+    $('b-watch').title = levelById(selectedLevel).bots ? '' : 'The bots only know the Museum';
+  };
+  select.onchange = show;
+  show();
+}
 function readProfile() {
   const profile = { name: cleanName($('in-name').value, ''), color: selectedColor };
   saveProfile(profile);
@@ -114,11 +141,12 @@ function buildProfilePicker() {
 }
 
 // ---------- host / local loop (runs the physics) ----------
-function startHostLoop({ n, net, local, hud, profiles }) {
-  const sim = createSim(n);
-  const view = createView(n, local ? -1 : 0, profiles);
-  const L = layout(n);
-  hideMenu(hud);
+function startHostLoop({ n, net, local, hud, profiles, level = 0 }) {
+  const sim = createSim(n, level);
+  const view = createView(n, local ? -1 : 0, profiles, level);
+  const L = layout(n, level);
+  hideMenu(hud, level);
+  const fx = createEffects(view, L, local ? -1 : 0);
 
   let acc = 0, last = performance.now(), tick = 0;
   const acks = []; // last input sequence number applied per joiner, echoed back so they can replay the rest
@@ -144,20 +172,49 @@ function startHostLoop({ n, net, local, hud, profiles }) {
   }
 
   function update(now) {
-    const dt = Math.min((now - last) / 1000, 0.1);
+    const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); // never negative, never a huge jump
     last = now;
     acc += dt;
     while (acc >= STEP) { hostTick(); acc -= STEP; }
     const pose = sim.pose();
-    view.apply(pose);
-    updateGameHud(pose, L);
+    view.apply(fx.before(pose, now));
+    updateGameHud(pose, L, fx.director.active);
     view.render(dt, now);
+    fx.after();
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
   requestAnimationFrame(frame);
   const sendEmote = (id) => (net ? net.emote(id) : view.showEmote(0, id)); // online the host relays it to everyone, itself included
-  game = window.__game = { role: local ? 'local' : 'host', sim, view, hostTick, update, net, acks, sendEmote, profiles }; // window hook is for console testing
+  game = window.__game = { role: local ? 'local' : 'host', sim, view, hostTick, update, net, acks, sendEmote, profiles, level, fx }; // window hook is for console testing
   return sim;
+}
+
+// ---------- sound, replay and screenshots (shared by every kind of game) ----------
+function toggleMute() {
+  setMuted(!isMuted());
+  $('mute').textContent = isMuted() ? '🔇' : '🔊';
+}
+
+/** me: the player on this screen, or -1 when spectating. */
+function createEffects(view, L, me) {
+  const sound = createSoundObserver(L, me);
+  const director = createDirector({ view, onChange: (on) => $('replay').classList.toggle('show', on) });
+  const showEmote = view.showEmote;
+  view.showEmote = (i, e, now) => { showEmote(i, e, now); sfx.pop(); };
+  const fx = {
+    director,
+    shot: false,
+    /** `pose` is what the game says right now. Returns what to actually draw (a replay frame while a replay plays). */
+    before(pose, now) {
+      sound(pose, now);
+      return director.frame(pose, now, L);
+    },
+    /** Call right after rendering. */
+    after() {
+      if (fx.shot) { fx.shot = false; saveScreenshot(view.renderer.domElement); }
+    },
+  };
+  return fx;
 }
 
 // ---------- watch the bots play ----------
@@ -167,9 +224,10 @@ const BOT_PROFILES = [
 
 function startWatch(n) {
   const profiles = BOT_PROFILES.slice(0, n);
-  const sim = createSim(n);
-  const view = createView(n, -1, profiles);
-  const L = layout(n);
+  const sim = createSim(n, 0); // the bots only know the Museum
+  const view = createView(n, -1, profiles, 0);
+  const L = layout(n, 0);
+  const fx = createEffects(view, L, -1);
   const bots = createBots(sim, { onEmote: (i, e) => view.showEmote(i, e) });
   hideMenu('<b>ROPE HEIST</b> &mdash; watching the bots &nbsp; R: they start over');
   $('watchbar').style.display = 'flex';
@@ -188,7 +246,7 @@ function startWatch(n) {
   }
 
   function update(now) {
-    const dt = Math.min((now - last) / 1000, 0.1);
+    const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); // never negative, never a huge jump
     last = now;
     if (bots.thinking) {
       bots.think(14); // the game is paused while the crew scouts the guards' patrol
@@ -205,14 +263,15 @@ function startWatch(n) {
       if (acc > STEP * 4) acc = 0;
     }
     const pose = sim.pose();
-    view.apply(pose);
-    updateGameHud(pose, L);
+    view.apply(fx.before(pose, now));
+    updateGameHud(pose, L, fx.director.active);
     if (++frames % 6 === 0) $('watch-text').innerHTML = watchText();
     view.render(dt, now);
+    fx.after();
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
   requestAnimationFrame(frame);
-  game = window.__game = { role: 'watch', sim, view, bots, update, profiles, setSpeed };
+  game = window.__game = { role: 'watch', sim, view, bots, update, profiles, setSpeed, fx };
 }
 
 // ---------- client loop (client-side prediction) ----------
@@ -223,12 +282,13 @@ const SMOOTH_TIME = 0.1; // seconds for a correction to fade out
 const TELEPORT_DIST = 3; // bigger jumps than this (a reset, say) snap instead of fading
 const MAX_REPLAY = 60; // ticks
 
-function startClientLoop({ n, index, conn, hooks, profiles }) {
-  const sim = createSim(n);
-  const view = createView(n, index, profiles);
-  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(profiles[index].color)}">You are ${esc(profiles[index].name)}</span><br>${CONTROLS_HINT}`);
+function startClientLoop({ n, index, conn, hooks, profiles, level = 0 }) {
+  const sim = createSim(n, level);
+  const view = createView(n, index, profiles, level);
+  hideMenu(`<b>ROPE HEIST</b><br><span style="color:${colorCss(profiles[index].color)}">You are ${esc(profiles[index].name)}</span><br>${CONTROLS_HINT}`, level);
 
-  const L = layout(n);
+  const L = layout(n, level);
+  const fx = createEffects(view, L, index);
   // which entries of the pose array are positions (x y z) and so can carry a smoothing offset
   const isPos = new Uint8Array(L.size);
   for (let i = 0; i < n; i++) isPos.fill(1, L.pOff + i * 4, L.pOff + i * 4 + 3);
@@ -275,7 +335,7 @@ function startClientLoop({ n, index, conn, hooks, profiles }) {
   hooks.onEmote = (i, e) => { if (i !== index) view.showEmote(i, e); }; // our own already popped up the moment we pressed the key
 
   function update(now) {
-    const dt = Math.min((now - last) / 1000, 0.1);
+    const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); // never negative, never a huge jump
     last = now;
     acc += dt;
     while (acc >= STEP) { clientTick(); acc -= STEP; }
@@ -285,14 +345,15 @@ function startClientLoop({ n, index, conn, hooks, profiles }) {
       if (isPos[i]) { offset[i] *= fade; pose[i] += offset[i]; }
     }
     shown = pose;
-    view.apply(pose);
-    updateGameHud(pose, L);
+    view.apply(fx.before(pose, now));
+    updateGameHud(pose, L, fx.director.active);
     view.render(dt, now);
+    fx.after();
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
   requestAnimationFrame(frame);
   const sendEmote = (id) => { view.showEmote(index, id); conn.sendEmote(id); };
-  game = window.__game = { role: 'client', sim, view, conn, update, clientTick, stats, offset, sendEmote, profiles, get seq() { return seq; } };
+  game = window.__game = { role: 'client', sim, view, conn, update, clientTick, stats, offset, sendEmote, profiles, level, fx, get seq() { return seq; } };
 }
 
 // ---------- menu wiring ----------
@@ -314,17 +375,19 @@ async function hostOnline() {
       },
       onLeave(i) { if (game?.sim) game.sim.players[i].input = inputFromArray([0, 0, 0, 0, 0, 0]); },
       onEmote(i, e) { game?.view?.showEmote(i, e); },
-    }, readProfile());
+    }, readProfile(), selectedLevel);
+    window.__net = net; // debug hook for console testing
     const link = `${location.origin}${location.pathname}?join=${net.code}`;
     $('lobby-code').textContent = net.code;
     $('lobby-link').textContent = link;
     $('lobby-title').textContent = 'Share this code (or link)';
+    $('lobby-level').textContent = `Level: ${levelById(selectedLevel).name}`;
     renderLobby(net.profiles(), 0);
     $('lobby-status').textContent = 'Waiting for friends to join…';
     $('b-start').disabled = true;
     $('b-start').onclick = () => {
-      const { n, players } = net.start();
-      startHostLoop({ n, net, local: false, profiles: players, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(players[0].color)}">You are ${esc(players[0].name)}</span> &nbsp; R: reset<br>${CONTROLS_HINT}` });
+      const { n, players, level } = net.start();
+      startHostLoop({ n, net, local: false, profiles: players, level, hud: `<b>ROPE HEIST</b> &nbsp; room <b>${net.code}</b> &nbsp; ${n} players<br><span style="color:${colorCss(players[0].color)}">You are ${esc(players[0].name)}</span> &nbsp; R: reset<br>${CONTROLS_HINT}` });
     };
     showPanel('p-lobby');
   } catch (err) {
@@ -343,11 +406,12 @@ async function joinOnline(code) {
   let conn = null;
   try {
     conn = await joinRoom(code, {
-      onLobby(players) {
+      onLobby(players, level) {
         renderLobby(players);
+        $('lobby-level').textContent = `Level: ${levelById(level).name}`;
         $('lobby-status').textContent = `${players.length} players in the room. Waiting for the host to start…`;
       },
-      onStart({ n, index, players }) { startClientLoop({ n, index, conn, hooks, profiles: players }); },
+      onStart({ n, index, players, level }) { startClientLoop({ n, index, conn, hooks, profiles: players, level }); },
       onSnap(d, ack) { hooks.onSnap(d, ack); },
       onEmote(i, e) { hooks.onEmote(i, e); },
       onClose() {
@@ -379,10 +443,12 @@ $('in-code').addEventListener('keyup', (e) => e.stopPropagation());
 $('in-name').addEventListener('keydown', (e) => e.stopPropagation()); // typing a name must not trigger emotes or movement
 $('in-name').addEventListener('keyup', (e) => e.stopPropagation());
 buildProfilePicker();
+buildLevelPicker();
+$('mute').onclick = toggleMute;
 $('b-watch').onclick = () => startWatch(2); // the level is built around a two-person safe carry, so the demo crew is two bots
 const LOCAL_PROFILES =[{ name: 'P1', color: 0 }, { name: 'P2', color: 1 }, { name: 'P3', color: 2 }, { name: 'P4', color: 3 }];
-$('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
-$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
+$('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, level: selectedLevel, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
+$('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, level: selectedLevel, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
 
 // share links look like ?join=ABCD
 const joinParam = new URLSearchParams(location.search).get('join');

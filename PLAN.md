@@ -52,10 +52,30 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
   - **Watching:** attempt / won / busted counter, stage text, speed 1x / 2x / 4x, R restarts them, Leave returns to the menu. After a win or loss the game restarts by itself and they plan again.
   - **Result:** two bots win on every attempt tested, about 32 s of game time, 2 of 2 in a row.
   - **Limits:** 3 and 4 bots can't beat the level yet (the extra bots trailing behind keep the crew exposed longer than the 2-3 s windows, and scouting takes about 45 s), so only the two-bot team is offered. Ideas: smarter hiding, extras that wait in the zone, bots filling empty seats online.
-- [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
-- [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.
+- [x] **Phase 6: Content and polish.** (Gamepad and mobile were deliberately left out.)
+  - **Level system.** Levels are data in `src/levels.js`; the menu has a level picker, the host's choice is sent to everyone, and the simulation, renderer and rollback state all take the level as a parameter.
+  - **The Gallery (second level, harder):** a zig-zag of three rooms (door on the east, first gap west, second gap east), three guards, a 4:00 timer, and the rule "deliver any 2 of 3 treasures".
+  - **Loot with character:** loot is now any box. A giant painting (flat, two carriers), a grandfather clock (tall, two carriers), and a live pig that hops off in a random direction every 0.7 s unless someone holds it (deterministic, so prediction matches the host). The safe got a dial; the clock a face and pendulum; the pig a snout, ears and tail.
+  - **Lasers:** beams pulse on and off (on about 1.6 s of every 4.5 s). A player touching a live beam adds 30 alert; just the rope crossing it adds 12. Beams are 0.55 high so they can be jumped. Each beam has a cooldown, and a tripped one flashes white. Alarm: siren, red screen flash, and an alert jump. Beams and alarm are part of the rollback state.
+  - **Sound (no audio files, all synthesised):** footsteps (yours loudest, others fade with distance), grab and drop, knot and unknot, guard spotted sting, laser zap, siren, last-10-seconds tick, emote pop, pig oink, win jingle, bust sting. M or the speaker button mutes (remembered).
+  - **Clip-friendly fail states:** after a win or a bust the banner shows for 1.5 s, then an instant replay of the last 5 s plays zoomed in at 0.8x with letterbox bars, then the banner returns; the round restarts 14 s after the end. V replays on demand, P saves a screenshot.
+  - **Bugs found while building it:**
+    - The rope is about four times heavier than a player and was dragging jumps down (only 0.66 high), so a 0.9 beam could not be cleared. Jump strength 7 to 9 and beams lowered to 0.55; a jump now clears a beam for about 0.38 s.
+    - The pig's oink never fired because the hop detection needed it to be both high and rising fast at the same instant.
+    - A negative time step (a clock running backwards) threw the camera to 10^47 units and it never recovered. Time steps are now clamped everywhere.
+    - The client showed the Museum's objective text on every level.
+  - **Tested:** laser timing, a player standing in a beam, jumping over one (three timings), a beam that is off, rope-only trips, the cooldown; pig determinism across two copies, upright, and held pigs staying put; 1 of 2 loot not winning and 2 of 2 winning; all three treasures carried through the 3-wide doorways into the zone; rollback on both levels (lasers, guards, pig, alarm and alert identical); every sound trigger (spied, one call per event, nothing while muted); the replay start, length, end and restart; a screenshot yields a valid PNG; the Museum bots still win 2 of 2.
+  - **Not done:** bots only know the Museum, no hiding spots, no custom levels, no text chat. The Gallery has not been beaten by a bot or a person end to end (only its pieces were verified), so its difficulty is a guess.
+- [x] **Phase 7: Public launch (what could be done without friends).**
+  - **README.md** with how to play, controls, rules, levels, how it works, TURN setup, testing aids and the file map.
+  - **Share preview:** Open Graph and Twitter tags plus a 1200x630 `public/og.jpg` made from a real frame (two bots carrying the safe).
+  - **Optional TURN relay:** if `ice-config.json` sits next to `index.html` its servers are added to the connection settings (`public/ice-config.example.json` is the template). Nothing is configured by default.
+  - **Desync hardening:** the unreliable channel can reorder messages, so snapshots and inputs are numbered and stale ones are ignored.
+  - **Host reconnect:** the host used to lose its link to the signalling server while idle in the lobby, after which new players got "Room not found". It now re-registers the same code automatically (tested: back within 0.5 s, and a joiner connected afterwards).
+  - **Stress test hooks:** `?lag=`, `&jitter=` and `&loss=` on a joiner's URL. Tested 60 ms lag, up to 80 ms jitter, 5% loss for 31 s of random play on The Gallery: 17 of 20 snapshots per second arrived, median error 0.18 units, no blow-ups, and after everyone stopped host and client agreed to within 0.01.
+  - **Still needs real people:** playtests over real networks, and judging difficulty and fun. A TURN server (paid or free-tier account) is yours to choose.
 
 ## Risks
 - **Rope physics** (stability, tension, network sync): prototype first, run on host only, sync positions.
-- **P2P reliability:** NAT traversal can fail without a TURN server. Plan: public STUN by default, optional TURN later.
+- **P2P reliability:** NAT traversal can fail without a TURN server. Public STUN is used by default and a TURN relay can be added through `ice-config.json` (see README). Not configured yet.
 - **Desync:** keep the host authoritative and snapshot at about 20 Hz with interpolation on clients.

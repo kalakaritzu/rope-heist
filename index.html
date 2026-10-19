@@ -4,6 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rope Heist</title>
+  <meta name="description" content="A co-op heist game for 2-4 friends who are tied together by one stretchy rope. Free, in your browser, no install." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Rope Heist" />
+  <meta property="og:description" content="Rob the museum with your friends, tied together by one stretchy rope. Free in your browser." />
+  <meta property="og:image" content="https://kalakaritzu.github.io/rope-heist/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Rope Heist" />
+  <meta name="twitter:description" content="Rob the museum with your friends, tied together by one stretchy rope. Free in your browser." />
+  <meta name="twitter:image" content="https://kalakaritzu.github.io/rope-heist/og.jpg" />
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1d29; font-family: system-ui, sans-serif; color: #fff; }
     canvas { display: block; }
@@ -14,13 +25,23 @@
     #alertbar { width: 240px; height: 12px; margin: 6px auto 0; border-radius: 6px; background: #0007; overflow: hidden; border: 1px solid #fff4; }
     #alertfill { height: 100%; width: 0; background: linear-gradient(90deg, #ffd166, #ff4d4d); transition: width .15s linear; }
     #alertlabel { font-size: 11px; opacity: .8; letter-spacing: 2px; margin-top: 2px; }
-    #objective { font-size: 12px; opacity: .85; margin-top: 4px; }
+    #objective { font-size: 12px; opacity: .85; margin-top: 4px; max-width: min(440px, 90vw); }
+    #lootline { font-size: 13px; font-weight: 700; margin-top: 4px; color: #ffd166; }
+    #alarmflash { position: fixed; inset: 0; background: #ff1f1f; opacity: 0; pointer-events: none; z-index: 4; mix-blend-mode: screen; }
+    select#level { font: inherit; font-weight: 600; width: 100%; box-sizing: border-box; border: 0; border-radius: 10px; padding: 10px 12px; margin-bottom: 4px; background: #14161f; color: #fff; cursor: pointer; }
     #banner { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; text-shadow: 0 2px 8px #000; z-index: 5; }
     #banner.show { display: flex; }
     #banner h2 { font-size: clamp(36px, 8vw, 84px); margin: 0; letter-spacing: 4px; }
     #banner p { font-size: 18px; margin: 8px 0 0; opacity: .9; }
     #banner.won h2 { color: #4ade80; }
     #banner.lost h2 { color: #ff6b6b; }
+    #replay { position: fixed; inset: 0; pointer-events: none; z-index: 7; display: none; }
+    #replay.show { display: block; }
+    #replay .bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000; }
+    #replay .bar.top { top: 0; } #replay .bar.bottom { bottom: 0; }
+    #replay .tag { position: absolute; left: 18px; bottom: calc(11vh + 12px); font-weight: 800; letter-spacing: 3px; font-size: 15px; color: #ff6b6b; text-shadow: 0 1px 4px #000; animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: .35; } }
+    #mute { position: fixed; right: 12px; top: 10px; display: none; width: auto; margin: 0; padding: 6px 10px; font-size: 18px; line-height: 1; background: #0d0f18cc; z-index: 8; }
     #watchbar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: none; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 94vw; padding: 8px 12px; border-radius: 12px; background: #0d0f18cc; font-size: 13px; z-index: 6; }
     #watchbar button { width: auto; margin: 0; padding: 6px 12px; font-size: 13px; background: #3a4170; }
     #watchbar button.on { background: #ff7a59; }
@@ -57,8 +78,12 @@
     <div id="timer">2:30</div>
     <div id="alertbar"><div id="alertfill"></div></div>
     <div id="alertlabel">ALERT</div>
+    <div id="lootline"></div>
     <div id="objective">Steal the gold safe (needs two of you) and bring it back to the green zone</div>
   </div>
+  <div id="alarmflash"></div>
+  <div id="replay"><div class="bar top"></div><div class="bar bottom"></div><div class="tag">&#9654; REPLAY</div></div>
+  <button id="mute" title="Sound on/off (M)" aria-label="Toggle sound"></button>
   <div id="watchbar">
     <span id="watch-text"></span>
     <button data-speed="1">1x</button><button data-speed="2">2x</button><button data-speed="4">4x</button>
@@ -74,6 +99,8 @@
       <div id="p-main" class="panel show">
         <input id="in-name" class="namebox" maxlength="12" placeholder="Your name" autocomplete="off" />
         <div id="swatches"></div>
+        <select id="level" aria-label="Level"></select>
+        <div id="level-blurb" class="hint"></div>
         <button id="b-host">Host a game</button>
         <input id="in-code" maxlength="4" placeholder="CODE" autocomplete="off" />
         <button id="b-join" class="alt">Join with code</button>
@@ -91,6 +118,7 @@
         <div id="lobby-title" class="hint">Share this code</div>
         <div id="lobby-code" class="code"></div>
         <div id="lobby-link" class="hint"></div>
+        <div id="lobby-level" class="hint"></div>
         <div id="players"></div>
         <div id="lobby-status" class="hint"></div>
         <button id="b-start">Start heist</button>

@@ -1,11 +1,40 @@
 // Rendering. Draws the world from a snapshot array (see layout() in sim.js); has no physics of its own.
 import * as THREE from 'three';
-import { LEVEL, ROPE_SEGMENTS, VIEW_DIST, VIEW_HALF_ANGLE, layout } from './sim.js';
+import { levelById, ROPE_SEGMENTS, VIEW_DIST, VIEW_HALF_ANGLE, LASER_HEIGHT, layout } from './sim.js';
 import { EMOTES, colorCss, colorHex } from './profile.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
 const EMOTE_SECONDS = 2.5;
+
+/** Draws a crate: a plain box, or for the treasures a box with a few extra bits so you can tell them apart. */
+function makeCrateMesh(c) {
+  const [dx, dy, dz] = c.s != null ? [c.s, c.s, c.s] : [c.sx, c.sy, c.sz];
+  const m = new THREE.Mesh(new THREE.BoxGeometry(dx, dy, dz), flat(c.color));
+  m.castShadow = m.receiveShadow = true;
+  const add = (geo, color, x, y, z) => {
+    const part = new THREE.Mesh(geo, flat(color));
+    part.position.set(x, y, z);
+    part.castShadow = true;
+    m.add(part);
+    return part;
+  };
+  if (c.kind === 'safe') {
+    add(new THREE.CylinderGeometry(0.22, 0.22, 0.08, 16), 0x6b5300, 0, 0.1, dz / 2 + 0.03).rotation.x = Math.PI / 2; // the dial
+  } else if (c.kind === 'painting') {
+    add(new THREE.BoxGeometry(dx * 0.82, 0.04, dz * 0.78), 0xf4d35e, 0, dy / 2 + 0.01, 0); // the canvas
+    add(new THREE.BoxGeometry(dx * 0.4, 0.05, dz * 0.4), 0xee6c4d, -dx * 0.12, dy / 2 + 0.03, 0.05);
+  } else if (c.kind === 'clock') {
+    add(new THREE.CylinderGeometry(0.26, 0.26, 0.06, 20), 0xfff3d6, 0, dy * 0.28, dz / 2 + 0.02).rotation.x = Math.PI / 2; // the face
+    add(new THREE.BoxGeometry(0.07, 0.5, 0.05), 0xd4af37, 0, -dy * 0.2, dz / 2 + 0.02); // the pendulum
+  } else if (c.kind === 'pig') {
+    add(new THREE.BoxGeometry(0.28, 0.24, 0.16), 0xf08fa6, 0, 0.02, dz / 2 + 0.07); // snout
+    add(new THREE.BoxGeometry(0.14, 0.16, 0.08), 0xe27a95, -0.18, dy / 2 + 0.05, dz / 2 - 0.12); // ears
+    add(new THREE.BoxGeometry(0.14, 0.16, 0.08), 0xe27a95, 0.18, dy / 2 + 0.05, dz / 2 - 0.12);
+    add(new THREE.BoxGeometry(0.06, 0.06, 0.18), 0xe27a95, 0, 0.08, -dz / 2 - 0.08); // tail
+  }
+  return m;
+}
 
 /** A name on a rounded dark plate with a border in the player's colour. Drawn through the canvas, so names are never parsed as HTML. */
 function makeNametag(name, color) {
@@ -55,8 +84,9 @@ function makeEmoteTextures() {
 }
 
 /** profiles: [{ name, color }] per player, color is an index into PALETTE. */
-export function createView(n, localIndex = -1, profiles = []) {
-  const L = layout(n);
+export function createView(n, localIndex = -1, profiles = [], levelId = 0) {
+  const lv = levelById(levelId);
+  const L = layout(n, levelId);
   const profile = (i) => profiles[i] ?? { name: `Player ${i + 1}`, color: i };
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -88,14 +118,14 @@ export function createView(n, localIndex = -1, profiles = []) {
   });
 
   // level
-  for (const s of LEVEL.statics) {
+  for (const s of lv.statics) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(s.h[0] * 2, s.h[1] * 2, s.h[2] * 2), flat(s.color));
     m.position.set(...s.p);
     m.castShadow = m.receiveShadow = true;
     scene.add(m);
   }
   // the getaway zone: the safe has to end up in here
-  const ex = LEVEL.exit;
+  const ex = lv.exit;
   const exitMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(ex.hx * 2, ex.hz * 2),
     new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.22, depthWrite: false }),
@@ -104,11 +134,30 @@ export function createView(n, localIndex = -1, profiles = []) {
   exitMesh.position.set(ex.x, 0.03, ex.z);
   scene.add(exitMesh);
 
-  const crateMeshes = LEVEL.crates.map((c) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(c.s, c.s, c.s), flat(c.color));
-    m.castShadow = m.receiveShadow = true;
+  const crateMeshes = lv.crates.map((c) => {
+    const m = makeCrateMesh(c);
     scene.add(m);
     return m;
+  });
+
+  // laser beams: a glowing red slab that is only there while the beam is on
+  const laserMeshes = lv.lasers.map((La) => {
+    const dx = La.b[0] - La.a[0], dz = La.b[1] - La.a[1], len = Math.hypot(dx, dz);
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.8, depthWrite: false });
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, LASER_HEIGHT, len), mat);
+    beam.position.y = LASER_HEIGHT / 2;
+    g.add(beam);
+    for (const sign of [-1, 1]) { // the two emitters
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.1, 10), flat(0x2b2d3a));
+      post.position.set(0, 0.55, sign * (len / 2 + 0.1));
+      post.castShadow = true;
+      g.add(post);
+    }
+    g.position.set((La.a[0] + La.b[0]) / 2, 0, (La.a[1] + La.b[1]) / 2);
+    g.rotation.y = Math.atan2(dx, dz);
+    scene.add(g);
+    return { beam, mat };
   });
 
   // players
@@ -227,6 +276,11 @@ export function createView(n, localIndex = -1, profiles = []) {
       g.userData.coneMat.color.setHex(mode === 2 ? 0xff4d4d : 0xfff3a0); // red while chasing
       g.userData.coneMat.opacity = mode === 2 ? 0.3 : 0.2;
     }
+    for (let i = 0; i < L.lasers; i++) {
+      const on = d[L.lOff + i * 2] === 1, tripped = d[L.lOff + i * 2 + 1] === 1;
+      laserMeshes[i].beam.visible = on;
+      laserMeshes[i].mat.color.setHex(tripped ? 0xffffff : 0xff2a2a); // a tripped beam flashes white
+    }
     for (let r = 0; r < L.ropes; r++) {
       const k = d[L.kOff + r];
       knots[r].visible = k >= 0;
@@ -237,6 +291,8 @@ export function createView(n, localIndex = -1, profiles = []) {
     }
   }
 
+  let zoom = 1;
+  const setZoom = (z) => { zoom = z; };
   const camTarget = new THREE.Vector3();
   const camGoal = new THREE.Vector3();
   const camPos = new THREE.Vector3(0, 10, 18);
@@ -249,8 +305,9 @@ export function createView(n, localIndex = -1, profiles = []) {
     let spread = 0;
     for (const p of playerPos) spread = Math.max(spread, Math.hypot(p.x - camTarget.x, p.z - camTarget.z));
     camTarget.y = 1;
-    camGoal.set(camTarget.x, 6 + spread * 1.2, camTarget.z + 9 + spread * 1.8);
-    camPos.lerp(camGoal, 1 - Math.exp(-dt * 4)); // frame-rate independent smoothing
+    // steeper than before so low walls in front of the crew don't hide them; `zoom` < 1 pulls the camera in (used by the replay)
+    camGoal.set(camTarget.x, (8.5 + spread * 1.2) * zoom, camTarget.z + (7.5 + spread * 1.8) * zoom);
+    camPos.lerp(camGoal, 1 - Math.exp(-Math.min(Math.max(dt, 0), 0.25) * 4)); // frame-rate independent smoothing; a bad time step can't throw the camera away
     camera.position.copy(camPos);
     camera.lookAt(camTarget);
 
@@ -274,5 +331,5 @@ export function createView(n, localIndex = -1, profiles = []) {
     renderer.render(scene, camera);
   }
 
-  return { apply, render, showEmote, renderer, scene, camera, playerPos };
+  return { apply, render, showEmote, setZoom, renderer, scene, camera, playerPos };
 }

@@ -3,7 +3,7 @@
 // The guards patrol on a fixed schedule, so a bot can find a safe moment to move by trying the next
 // stage on a hidden copy of the world ("scouting") with different waiting times, then doing it for
 // real with the best one. While it scouts, the real game is paused.
-import { createSim, LEVEL } from './sim.js';
+import { createSim, levelById } from './sim.js';
 
 const FOLLOW_LAG = 35; // ticks each bot trails the one in front of it
 const SCOUT_STEP = 40; // candidate waiting times are tried in steps of this many ticks
@@ -24,7 +24,7 @@ export const STAGES = [
   { name: 'crossing the hall with it', kind: 'carry', pts: [[0, -12], [0, -8], [0, -5.5]], endAt: [0, -5.5], maxTicks: 600 },
   { name: 'running for the getaway zone', kind: 'carry', pts: [[0, -3], [0, 3], [0, 7.5]], endAt: null, maxTicks: 700 },
 ];
-const SAFE = LEVEL.crates.findIndex((c) => c.loot);
+const SAFE = levelById(0).crates.findIndex((c) => c.loot); // the bots only know the Museum
 const AROUND_WEST = [[-2.3, -17.5], [-2.3, -20.7], [-0.7, -20.8]]; // the two carriers go round either side of the safe
 const AROUND_EAST = [[2.3, -17.5], [2.3, -20.7], [0.7, -20.8]];
 

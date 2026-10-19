@@ -1,0 +1,5 @@
+{
+  "iceServers": [
+    { "urls": "turn:your-relay.example.com:3478", "username": "name", "credential": "secret" }
+  ]
+}
