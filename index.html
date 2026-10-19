@@ -21,6 +21,9 @@
     #banner p { font-size: 18px; margin: 8px 0 0; opacity: .9; }
     #banner.won h2 { color: #4ade80; }
     #banner.lost h2 { color: #ff6b6b; }
+    #watchbar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: none; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 94vw; padding: 8px 12px; border-radius: 12px; background: #0d0f18cc; font-size: 13px; z-index: 6; }
+    #watchbar button { width: auto; margin: 0; padding: 6px 12px; font-size: 13px; background: #3a4170; }
+    #watchbar button.on { background: #ff7a59; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 30%, #2b3050, #14161f); z-index: 10; }
     #menu.hidden { display: none; }
     .card { width: min(380px, 90vw); padding: 28px; border-radius: 16px; background: #232842; box-shadow: 0 10px 40px #0008; }
@@ -56,6 +59,11 @@
     <div id="alertlabel">ALERT</div>
     <div id="objective">Steal the gold safe (needs two of you) and bring it back to the green zone</div>
   </div>
+  <div id="watchbar">
+    <span id="watch-text"></span>
+    <button data-speed="1">1x</button><button data-speed="2">2x</button><button data-speed="4">4x</button>
+    <button id="watch-leave">Leave</button>
+  </div>
   <div id="banner"><h2 id="banner-title"></h2><p id="banner-sub"></p></div>
 
   <div id="menu">
@@ -69,6 +77,9 @@
         <button id="b-host">Host a game</button>
         <input id="in-code" maxlength="4" placeholder="CODE" autocomplete="off" />
         <button id="b-join" class="alt">Join with code</button>
+        <div class="row">
+          <button id="b-watch" class="alt">Watch 2 bots play</button>
+        </div>
         <div class="row">
           <button id="b-local" class="alt">Local 2P</button>
           <button id="b-chain" class="alt">Chain test (4)</button>

@@ -1,7 +1,7 @@
 // Who you are in a room: name, colour and emotes. Purely cosmetic, so none of it touches the simulation.
 
 export const PALETTE = [0xff7a59, 0x59c3ff, 0x7be07b, 0xf2d34f, 0xc084fc, 0xf472b6, 0x2dd4bf, 0xe5e7eb];
-export const EMOTES = ['👍', '😂', '😱', '🆘'];
+export const EMOTES = ['👍', '😂', '😱', '🆘', '🤔', '🎉']; // keys 1-4 send the first four; the bots also use the last two
 export const MAX_NAME = 12;
 
 export const colorHex = (index) => PALETTE[index] ?? PALETTE[0];

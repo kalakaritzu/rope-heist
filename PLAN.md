@@ -46,6 +46,12 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
   - **Emotes:** keys 1-4 pop a bubble (thumbs up, laughing, scared, SOS) over your head for 2.5 s. Your own shows instantly; the host relays it to everyone, ignores spam (300 ms) and invalid ids. Cosmetic only, not part of the simulation or rollback state.
   - Tested with a host and two joiners who all picked the same colour (resolved to three different ones), a hostile name, a very long name with an emoji, emotes both ways, spam and bad ids.
   - Not done: choosing a colour after entering the lobby, custom emotes, a text chat.
+- [x] **Watch the bots (extra).** A "Watch 2 bots play" button on the menu starts a round with two AI crew, Botty and Clank, who try to pull off the heist together while you spectate.
+  - **How they decide:** the guards patrol on a fixed schedule, so before moving the bots scout on a hidden copy of the world, trying "wait N seconds in the safe getaway zone, then do the whole heist without stopping". They pick the earliest wait that stays quiet (the game is paused with a thinking bubble while they do this, about 7 s). If no clean non-stop run exists they fall back to scouting stage by stage.
+  - **Teamwork:** they move single file through the door and gap, walk round either side of the safe, grab it together, and carry it side by side to the zone. They react with emotes (thinking, panic, SOS, party).
+  - **Watching:** attempt / won / busted counter, stage text, speed 1x / 2x / 4x, R restarts them, Leave returns to the menu. After a win or loss the game restarts by itself and they plan again.
+  - **Result:** two bots win on every attempt tested, about 32 s of game time, 2 of 2 in a row.
+  - **Limits:** 3 and 4 bots can't beat the level yet (the extra bots trailing behind keep the crew exposed longer than the 2-3 s windows, and scouting takes about 45 s), so only the two-bot team is offered. Ideas: smarter hiding, extras that wait in the zone, bots filling empty seats online.
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
 - [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.
 

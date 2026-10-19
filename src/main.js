@@ -1,6 +1,7 @@
 import { initPhysics, createSim, layout, inputToArray, inputFromArray, STEP, MAX_PLAYERS } from './sim.js';
 import { createView } from './view.js';
 import { createHost, joinRoom } from './net.js';
+import { createBots } from './bots.js';
 import { PALETTE, EMOTES, colorCss, cleanName, loadSavedProfile, saveProfile } from './profile.js';
 
 const $ = (id) => document.getElementById(id);
@@ -10,7 +11,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const keysDown = new Set();
 addEventListener('keydown', (e) => {
   keysDown.add(e.code);
-  if (e.code === 'KeyR' && game?.role !== 'client' && game?.sim) game.sim.resetAll();
+  if (e.code === 'KeyR' && game?.role === 'watch') game.bots.restart();
+  else if (e.code === 'KeyR' && game?.role !== 'client' && game?.sim) game.sim.resetAll();
   if (/^Digit[1-4]$/.test(e.code) && !e.repeat) emote(Number(e.code.slice(5)) - 1);
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
@@ -30,7 +32,7 @@ const SCHEME_ONLINE = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   jump: ['Space', 'Enter'], grab: ['KeyE', 'Period'], tie: ['KeyQ', 'Comma'],
 };
-const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>Q</b> tie rope to pillar &middot; <b>1-4</b> emotes ' + EMOTES.join(' ');
+const CONTROLS_HINT = 'WASD move &middot; Space jump &middot; <b>E</b> hold to grab &middot; <b>Q</b> tie rope to pillar &middot; <b>1-4</b> emotes ' + EMOTES.slice(0, 4).join(' ');
 
 // ---------- emotes ----------
 const EMOTE_COOLDOWN_MS = 700;
@@ -156,6 +158,61 @@ function startHostLoop({ n, net, local, hud, profiles }) {
   const sendEmote = (id) => (net ? net.emote(id) : view.showEmote(0, id)); // online the host relays it to everyone, itself included
   game = window.__game = { role: local ? 'local' : 'host', sim, view, hostTick, update, net, acks, sendEmote, profiles }; // window hook is for console testing
   return sim;
+}
+
+// ---------- watch the bots play ----------
+const BOT_PROFILES = [
+  { name: 'Botty', color: 0 }, { name: 'Clank', color: 1 }, { name: 'Sparky', color: 2 }, { name: 'Gizmo', color: 3 },
+];
+
+function startWatch(n) {
+  const profiles = BOT_PROFILES.slice(0, n);
+  const sim = createSim(n);
+  const view = createView(n, -1, profiles);
+  const L = layout(n);
+  const bots = createBots(sim, { onEmote: (i, e) => view.showEmote(i, e) });
+  hideMenu('<b>ROPE HEIST</b> &mdash; watching the bots &nbsp; R: they start over');
+  $('watchbar').style.display = 'flex';
+
+  let speed = 1, acc = 0, last = performance.now(), frames = 0;
+  const speedButtons = [...document.querySelectorAll('#watchbar [data-speed]')];
+  const setSpeed = (s) => { speed = s; speedButtons.forEach((b) => b.classList.toggle('on', Number(b.dataset.speed) === s)); };
+  speedButtons.forEach((b) => { b.onclick = () => setSpeed(Number(b.dataset.speed)); });
+  $('watch-leave').onclick = () => location.reload();
+  setSpeed(1);
+
+  function watchText() {
+    const s = bots.stats;
+    const what = bots.thinking ? `scouting the guards' patrol (${bots.scouting} ways tried)...` : bots.stageName;
+    return `Attempt ${s.attempts} &middot; ${s.wins} won &middot; ${s.busts} busted &middot; stage ${Math.max(0, bots.stageIndex) + 1}/${bots.stageCount}: ${what}`;
+  }
+
+  function update(now) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    if (bots.thinking) {
+      bots.think(14); // the game is paused while the crew scouts the guards' patrol
+      acc = 0;
+    } else {
+      acc += dt * speed;
+      for (let guard = 0; acc >= STEP && guard < 20; guard++) {
+        const inputs = bots.inputs();
+        sim.players.forEach((p, i) => { p.input = { x: 0, z: 0, jump: false, grab: false, tie: false, ...inputs[i] }; });
+        sim.step();
+        acc -= STEP;
+        if (bots.thinking) { acc = 0; break; }
+      }
+      if (acc > STEP * 4) acc = 0;
+    }
+    const pose = sim.pose();
+    view.apply(pose);
+    updateGameHud(pose, L);
+    if (++frames % 6 === 0) $('watch-text').innerHTML = watchText();
+    view.render(dt, now);
+  }
+  const frame = (now) => { requestAnimationFrame(frame); update(now); };
+  requestAnimationFrame(frame);
+  game = window.__game = { role: 'watch', sim, view, bots, update, profiles, setSpeed };
 }
 
 // ---------- client loop (client-side prediction) ----------
@@ -322,7 +379,8 @@ $('in-code').addEventListener('keyup', (e) => e.stopPropagation());
 $('in-name').addEventListener('keydown', (e) => e.stopPropagation()); // typing a name must not trigger emotes or movement
 $('in-name').addEventListener('keyup', (e) => e.stopPropagation());
 buildProfilePicker();
-const LOCAL_PROFILES = [{ name: 'P1', color: 0 }, { name: 'P2', color: 1 }, { name: 'P3', color: 2 }, { name: 'P4', color: 3 }];
+$('b-watch').onclick = () => startWatch(2); // the level is built around a two-person safe carry, so the demo crew is two bots
+const LOCAL_PROFILES =[{ name: 'P1', color: 0 }, { name: 'P2', color: 1 }, { name: 'P3', color: 2 }, { name: 'P4', color: 3 }];
 $('b-local').onclick = () => startHostLoop({ n: 2, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; local test &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
 $('b-chain').onclick = () => startHostLoop({ n: 4, local: true, profiles: LOCAL_PROFILES, hud: '<b>ROPE HEIST</b> &mdash; 4-player chain test (P3 and P4 stumble around by themselves) &nbsp; R: reset<br><span style="color:#ff7a59">P1</span>: WASD, Space, E grab, Q tie<br><span style="color:#59c3ff">P2</span>: Arrows, Enter, . grab, , tie' });
 
