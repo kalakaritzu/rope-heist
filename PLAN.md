@@ -13,7 +13,6 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
 ## Tech
 - Vite + Three.js (low-poly flat-shaded look) + Rapier WASM (`@dimforge/rapier3d-compat`)
 - PeerJS (WebRTC) for P2P: host runs physics, clients send inputs and receive snapshots. No backend, no Firebase.
-- Proximity voice chat over WebRTC audio, volume by distance.
 - Deploy: GitHub Actions -> GitHub Pages (`.github/workflows/deploy.yml`).
 
 ## Phases
@@ -39,7 +38,7 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
     - Carrying the safe was slower than a chasing guard (2.3 vs 3.6 units/s), so any chase while carrying lost the run. Tuned: carry slowdown 0.2 -> 0.1, carrier drag 0.3 -> 0.15, chase speed 3.6 -> 3.3, view distance 8 -> 7.
     - After tuning, a crew that never stops wins only for start times in a 2-3 s window per 24 s cycle (about 32 s of play, alert peaks 18-86%). Timing the front door (about 2 s wait) and the hall (under 1 s) is easy. Hard but fair for a bot; needs real human playtesting before more tuning.
     - Ideas if it proves too hard: offset the guard phases, add hiding spots, let the rope or a thrown crate distract guards.
-- [ ] **Phase 5: Proximity voice + identity.** Voice chat, nametags, colours, emotes.
+- [ ] **Phase 5: Identity.** Nametags, colours, emotes. (Proximity voice chat was dropped: friends use their own voice app.)
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
 - [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.
 
