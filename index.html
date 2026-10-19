@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rope Heist</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1d29; font-family: system-ui, sans-serif; color: #fff; }
+    canvas { display: block; }
+    #hud { position: fixed; left: 12px; top: 10px; font-size: 13px; line-height: 1.5; opacity: .9; pointer-events: none; text-shadow: 0 1px 2px #000; display: none; }
+    #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 30%, #2b3050, #14161f); z-index: 10; }
+    #menu.hidden { display: none; }
+    .card { width: min(380px, 90vw); padding: 28px; border-radius: 16px; background: #232842; box-shadow: 0 10px 40px #0008; }
+    h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 1px; }
+    .sub { margin: 0 0 20px; opacity: .65; font-size: 14px; }
+    button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 16px; background: #ff7a59; color: #fff; cursor: pointer; width: 100%; margin-top: 10px; }
+    button.alt { background: #3a4170; }
+    button:disabled { opacity: .4; cursor: default; }
+    input { font: inherit; font-size: 22px; letter-spacing: 6px; text-transform: uppercase; text-align: center; width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 2px solid #3a4170; background: #14161f; color: #fff; margin-top: 10px; }
+    .row { display: flex; gap: 8px; }
+    .row button { margin-top: 10px; }
+    .code { font-size: 44px; font-weight: 800; letter-spacing: 10px; text-align: center; margin: 14px 0 4px; }
+    .hint { font-size: 13px; opacity: .65; text-align: center; margin: 4px 0; }
+    #error { color: #ff8a8a; font-size: 13px; min-height: 18px; margin-top: 10px; text-align: center; }
+    .panel { display: none; }
+    .panel.show { display: block; }
+    #players { display: flex; gap: 8px; justify-content: center; margin: 12px 0; }
+    .dot { width: 26px; height: 26px; border-radius: 50%; background: #3a4170; }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+
+  <div id="menu">
+    <div class="card">
+      <h1>ROPE HEIST</h1>
+      <p class="sub">Rob the place. Don't untie yourselves.</p>
+
+      <div id="p-main" class="panel show">
+        <button id="b-host">Host a game</button>
+        <input id="in-code" maxlength="4" placeholder="CODE" autocomplete="off" />
+        <button id="b-join" class="alt">Join with code</button>
+        <div class="row">
+          <button id="b-local" class="alt">Local 2P</button>
+          <button id="b-chain" class="alt">Chain test (4)</button>
+        </div>
+        <div id="error"></div>
+      </div>
+
+      <div id="p-lobby" class="panel">
+        <div id="lobby-title" class="hint">Share this code</div>
+        <div id="lobby-code" class="code"></div>
+        <div id="lobby-link" class="hint"></div>
+        <div id="players"></div>
+        <div id="lobby-status" class="hint"></div>
+        <button id="b-start">Start heist</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
