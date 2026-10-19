@@ -23,7 +23,7 @@ const GRAB_DROP_DIST = 4; // a held crate this far away (someone got yanked, say
 const HOLD_FORCE_MAX = 64; // one player can lift mass up to about 3.2 against gravity 20, so the safe (4.5) takes two
 const HOLD_SPRING = 70;
 const HOLD_DAMPING = 9;
-const HOLD_REACTION = 0.3; // how much a heavy load drags the carrier
+const HOLD_REACTION = 0.15; // how much a heavy load drags the carrier
 const YANK_SPEED = 15;
 const YANK_COOLDOWN = 60; // ticks
 const YANK_STUN = 22; // ticks of reduced steering so the yank actually carries you
@@ -36,9 +36,10 @@ const END_RESTART_TICKS = 10 * 60; // after a win or loss the round restarts by 
 const WIN_HOLD_TICKS = 30; // the safe has to sit in the getaway zone this long
 // guards
 const GUARD_PATROL_SPEED = 2.0;
-const GUARD_CHASE_SPEED = 3.6;
+const GUARD_CHASE_SPEED = 3.3;
 const GUARD_PAUSE_TICKS = 45; // they stop and look around at each waypoint
-export const VIEW_DIST = 8;
+const GUARD_STUCK_TICKS = 90; // a patrolling guard that has not moved for this long skips its waypoint
+export const VIEW_DIST = 7;
 export const VIEW_HALF_ANGLE = 0.7; // radians either side of facing
 const SEE_TO_CHASE_TICKS = 36; // seeing a player this long (0.6 s) starts a chase
 const LOSE_TARGET_TICKS = 150; // a chaser gives up this long after losing sight
@@ -63,7 +64,7 @@ export const LEVEL = {
     wall(0.25, 9.25, -12, -13), wall(0.25, 9.25, 12, -13), // side walls
     wall(5.375, 0.25, -6.875, -4), wall(5.375, 0.25, 6.875, -4), // front wall, door gap at x in [-1.5, 1.5]
     wall(5, 0.25, -7, -13), wall(5, 0.25, 7, -13), // inner wall, gap at x in [-2, 2] leads to the vault
-    pillar(4, 0), pillar(-6, -8.5), pillar(6, -8.5), pillar(-6, -17.5), pillar(6, -17.5), // places to tie the rope
+    pillar(4, 0), pillar(-6, -8.5), pillar(6, -8.5), pillar(-6, -18.5), pillar(6, -18.5), // places to tie the rope
   ],
   // size, position, density. mass = size^3 * density: light crates are a one-person carry.
   crates: [
@@ -292,6 +293,8 @@ export function createSim(n) {
       [tx, tz] = g.def.wps[g.wp];
       speed = GUARD_PATROL_SPEED;
       if (Math.hypot(tx - t.x, tz - t.z) < 0.5) { g.mode = 1; g.timer = 0; speed = 0; }
+      // wedged against something for 1.5 s? give up on this waypoint and head for the next
+      else if (Math.hypot(v.x, v.z) < 0.3 ? ++g.timer > GUARD_STUCK_TICKS : (g.timer = 0)) { g.wp = (g.wp + 1) % g.def.wps.length; g.timer = 0; }
     }
 
     const dx = (lookX ?? tx - t.x), dz = (lookZ ?? tz - t.z), d = Math.hypot(dx, dz);
@@ -340,7 +343,7 @@ export function createSim(n) {
     let { x: dx, z: dz } = p.input;
     const len = Math.hypot(dx, dz);
     if (len > 1) { dx /= len; dz /= len; }
-    const speed = MOVE_SPEED / (1 + 0.2 * carriedMass(p)); // heavy loads slow you down
+    const speed = MOVE_SPEED / (1 + 0.1 * carriedMass(p)); // heavy loads slow you down
     const v = p.body.linvel();
     const grounded = isGrounded(p);
     // blend toward target velocity so the rope can still yank us around; right after a yank

@@ -33,6 +33,12 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
   - **Rules:** win when the safe sits in the zone for half a second. Lose when ALERT reaches 100 or the 2:30 timer runs out. The round restarts by itself 10 s after either, so clients need no button (R still resets on the host).
   - Guards, alert, timer and status are all in the rollback state, so prediction covers them (restored copies chase on the same tick). HUD: timer, alert bar, win/lose banner.
   - Rough edges: guards can't open doors or be tied up yet, no sound, one level only, the first physics tick has no sight queries (harmless), chase routing is straight-line (they can get stuck behind walls).
+  - **Bot playtest (input-only bot, not a human):** the heist is beatable. Findings and fixes:
+    - Vault pillars sat on the vault guard's patrol line, so the guard walked into one and stood there forever. Pillars moved, and patrolling guards now skip a waypoint after 1.5 s without moving.
+    - Exposure map over a full 24 s guard cycle: every spot in the hall and vault is in some guard's sight 10-30% of the time (front door up to 50%), with very few permanently hidden corners. The two inner guards have equal-length loops and start in phase, so their windows line up.
+    - Carrying the safe was slower than a chasing guard (2.3 vs 3.6 units/s), so any chase while carrying lost the run. Tuned: carry slowdown 0.2 -> 0.1, carrier drag 0.3 -> 0.15, chase speed 3.6 -> 3.3, view distance 8 -> 7.
+    - After tuning, a crew that never stops wins only for start times in a 2-3 s window per 24 s cycle (about 32 s of play, alert peaks 18-86%). Timing the front door (about 2 s wait) and the hall (under 1 s) is easy. Hard but fair for a bot; needs real human playtesting before more tuning.
+    - Ideas if it proves too hard: offset the guard phases, add hiding spots, let the rope or a thrown crate distract guards.
 - [ ] **Phase 5: Proximity voice + identity.** Voice chat, nametags, colours, emotes.
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
 - [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.
