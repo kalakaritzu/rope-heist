@@ -13,7 +13,7 @@ const GRAVITY = 20;
 const PLAYER_HALF_HEIGHT = 0.75; // capsule half-length 0.35 + radius 0.4
 const ROPE_DENSITY = 40; // heavy enough that the joint solver can hold players
 const SPAWN_GAP = ROPE_LENGTH * 0.94; // start nearly taut but not stretched
-const SPAWN_Z = 3;
+const SPAWN_Z = 9; // the crew starts in the getaway zone, south of the building
 const GROUP_PLAYER = 0x0001;
 const GROUP_ROPE = 0x0002;
 
@@ -30,25 +30,60 @@ const YANK_STUN = 22; // ticks of reduced steering so the yank actually carries 
 const TIE_REACH = 2.4; // how close you must stand to a pillar
 const TIE_SNAP = 1.5; // a rope segment further than this from the pillar can't be tied
 
+// heist rules
+const TIME_LIMIT_TICKS = 150 * 60; // 2:30
+const END_RESTART_TICKS = 10 * 60; // after a win or loss the round restarts by itself
+const WIN_HOLD_TICKS = 30; // the safe has to sit in the getaway zone this long
+// guards
+const GUARD_PATROL_SPEED = 2.0;
+const GUARD_CHASE_SPEED = 3.6;
+const GUARD_PAUSE_TICKS = 45; // they stop and look around at each waypoint
+export const VIEW_DIST = 8;
+export const VIEW_HALF_ANGLE = 0.7; // radians either side of facing
+const SEE_TO_CHASE_TICKS = 36; // seeing a player this long (0.6 s) starts a chase
+const LOSE_TARGET_TICKS = 150; // a chaser gives up this long after losing sight
+const ALERT_PLAYER = 0.5; // alert per tick (of 100) while a player is in a cone
+const ALERT_ROPE = 0.2; // ... while only the rope is
+const ALERT_DECAY = 0.1; // per tick when nobody is seen
+const ALERT_CONTACT = 15; // a chasing guard catching you
+const CONTACT_COOLDOWN = 60;
+
 export const PLAYER_COLORS = [0xff7a59, 0x59c3ff, 0x7be07b, 0xf2d34f];
 
 // Shared with the renderer so both sides build the same level.
+// "The Museum": spawn and getaway zone in the south, a walled building to the north with a door in
+// the front wall, a hall, then a gap into the vault where the safe sits.
+const WALL = 0.8; // wall half-height: too tall to jump, low enough to see over
+const wall = (hx, hz, x, z) => ({ h: [hx, WALL, hz], p: [x, WALL, z], color: 0x5a6078 });
+const pillar = (x, z) => ({ h: [0.6, 1.6, 0.6], p: [x, 1.6, z], color: 0x6b5b95, pillar: true });
 export const LEVEL = {
   statics: [
-    { h: [30, 0.5, 30], p: [0, -0.5, 0], color: 0x3b4058 }, // floor
-    { h: [0.6, 2.5, 0.6], p: [0, 2.5, -4], color: 0x6b5b95, pillar: true }, // pillars: tie the rope here
-    { h: [0.6, 2.5, 0.6], p: [7, 2.5, -1], color: 0x6b5b95, pillar: true },
-    { h: [4, 0.5, 4], p: [-10, 0.5, -6], color: 0x4a7c59 }, // raised platform
+    { h: [40, 0.5, 40], p: [0, -0.5, 0], color: 0x3b4058 }, // floor
+    wall(12.25, 0.25, 0, -22), // back wall
+    wall(0.25, 9.25, -12, -13), wall(0.25, 9.25, 12, -13), // side walls
+    wall(5.375, 0.25, -6.875, -4), wall(5.375, 0.25, 6.875, -4), // front wall, door gap at x in [-1.5, 1.5]
+    wall(5, 0.25, -7, -13), wall(5, 0.25, 7, -13), // inner wall, gap at x in [-2, 2] leads to the vault
+    pillar(4, 0), pillar(-6, -8.5), pillar(6, -8.5), pillar(-6, -17.5), pillar(6, -17.5), // places to tie the rope
   ],
-  // size, position, density. Kept clear of the spawn line (z = SPAWN_Z).
-  // mass = size^3 * density: light crates are a one-person carry, the safe needs two.
+  // size, position, density. mass = size^3 * density: light crates are a one-person carry.
   crates: [
-    { s: 1, x: 3, z: 6, density: 0.6, color: 0xd9a441 },
-    { s: 1, x: 4.5, z: -1, density: 0.6, color: 0xd9a441 },
-    { s: 1.4, x: -4, z: 7, density: 0.6, color: 0xd9a441 },
-    { s: 0.8, x: 2, z: 9, density: 0.6, color: 0xd9a441 },
-    { s: 1.2, x: 8, z: -3, density: 0.6, color: 0xd9a441 },
-    { s: 1.2, x: -2, z: 10, density: 2.6, color: 0xffd166 }, // the safe: heavy loot
+    { s: 1, x: -9, z: 10, density: 0.6, color: 0xd9a441 },
+    { s: 1.2, x: 9, z: 6, density: 0.6, color: 0xd9a441 },
+    { s: 0.8, x: -7, z: 2, density: 0.6, color: 0xd9a441 },
+    { s: 1.4, x: -8, z: -6, density: 0.6, color: 0xd9a441 },
+    { s: 1, x: 8, z: -11, density: 0.6, color: 0xd9a441 },
+    { s: 1, x: 5, z: -6, density: 0.6, color: 0xd9a441 },
+    { s: 0.8, x: -8, z: -19, density: 0.6, color: 0xe9c46a },
+    { s: 0.8, x: 8, z: -19, density: 0.6, color: 0xe9c46a },
+    { s: 1.2, x: 0, z: -19, density: 2.6, color: 0xffd166, loot: true }, // THE SAFE: heavy, needs two players
+  ],
+  // the safe must end up inside this box (centre x, z, half sizes)
+  exit: { x: 0, z: 9, hx: 6, hz: 4 },
+  // each guard loops through its waypoints [x, z]
+  guards: [
+    { wps: [[-9, -7], [9, -7], [9, -10], [-9, -10]] }, // the hall
+    { wps: [[-9, -17], [9, -17], [9, -20], [-9, -20]] }, // the vault
+    { wps: [[-9, -1.5], [9, -1.5]] }, // outside the front wall
   ],
 };
 
@@ -68,7 +103,9 @@ export function layout(n) {
   const kOff = cOff + nc * 7; // per rope: index of the tied-off segment, or -1
   const fOff = kOff + ropes; // per player: yank cooldown 0..1 (for the flash)
   const hOff = fOff + n; // per crate: how many players hold it
-  return { n, ropes, pOff, rOff, cOff, kOff, fOff, hOff, crates: nc, size: hOff + nc };
+  const gOff = hOff + nc; // per guard: x y z facing mode
+  const sOff = gOff + LEVEL.guards.length * 5; // game: status, reason, seconds left, alert
+  return { n, ropes, pOff, rOff, cOff, kOff, fOff, hOff, gOff, sOff, crates: nc, guards: LEVEL.guards.length, size: sOff + 4 };
 }
 
 /**
@@ -77,13 +114,17 @@ export function layout(n) {
  * pin (per rope): tied-off segment index or -1
  * rope segment: x y z qx qy qz qw vx vy vz
  * crate: x y z qx qy qz qw vx vy vz wx wy wz
+ * guard: x y z vx vy vz facing waypoint mode timer target seeTicks contactCooldown
+ * game: tick alert status reason winHold endTicks
  */
 export function stateLayout(n) {
-  const PN = 19, RN = 10, CN = 13;
+  const PN = 19, RN = 10, CN = 13, GN = 13, GAMEN = 6;
   const pinOff = n * PN;
   const rOff = pinOff + (n - 1);
   const cOff = rOff + (n - 1) * ROPE_SEGMENTS * RN;
-  return { n, PN, RN, CN, pinOff, rOff, cOff, size: cOff + LEVEL.crates.length * CN };
+  const gOff = cOff + LEVEL.crates.length * CN;
+  const mOff = gOff + LEVEL.guards.length * GN;
+  return { n, PN, RN, CN, GN, GAMEN, pinOff, rOff, cOff, gOff, mOff, size: mOff + GAMEN };
 }
 
 let rapierReady = null;
@@ -168,6 +209,114 @@ export function createSim(n) {
     );
     ropes.push(segs);
     pinSeg.push(-1);
+  }
+
+  // ---------- guards and the heist rules ----------
+  const safeIndex = LEVEL.crates.findIndex((c) => c.loot);
+  // status: 0 playing, 1 won, 2 lost.  reason (when lost): 1 alarm, 2 out of time
+  const game = { tick: 0, alert: 0, status: 0, reason: 0, winHold: 0, endTicks: 0 };
+  const facingToward = (def, from, to) => Math.atan2(def.wps[to][0] - def.wps[from][0], def.wps[to][1] - def.wps[from][1]);
+  const guards = LEVEL.guards.map((def) => {
+    const [sx, sz] = def.wps[0];
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic().setTranslation(sx, 1.2, sz).lockRotations().setLinearDamping(0.5).setCcdEnabled(true),
+    );
+    const collider = world.createCollider(RAPIER.ColliderDesc.capsule(0.35, 0.4).setDensity(3).setFriction(0), body);
+    return { body, collider, def, facing: facingToward(def, 0, 1), wp: 1, mode: 0, timer: 0, target: -1, see: 0, contactCd: 0 }; // mode: 0 patrol, 1 pause, 2 chase
+  });
+
+  const SIGHT_GROUPS = (0xffff << 16) | (0xffff & ~GROUP_ROPE & ~GROUP_PLAYER); // walls and crates block sight, people and rope do not
+  const COS_VIEW = Math.cos(VIEW_HALF_ANGLE);
+  const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+  /** How far away the point is, if this guard can see it (inside the cone, nothing solid in between), else -1. */
+  function sightDistance(g, tx, ty, tz) {
+    const gt = g.body.translation();
+    const dx = tx - gt.x, dz = tz - gt.z;
+    const flat = Math.hypot(dx, dz);
+    if (flat < 0.01) return 0;
+    if (flat > VIEW_DIST) return -1;
+    if ((dx * Math.sin(g.facing) + dz * Math.cos(g.facing)) / flat < COS_VIEW) return -1;
+    const ey = gt.y + 0.2, dy = ty - ey, d3 = Math.hypot(dx, dy, dz);
+    const ray = new RAPIER.Ray({ x: gt.x, y: ey, z: gt.z }, { x: dx / d3, y: dy / d3, z: dz / d3 });
+    return world.castRay(ray, d3 - 0.25, true, undefined, SIGHT_GROUPS, g.collider) === null ? flat : -1;
+  }
+
+  /** One tick of guard behaviour. Returns how much it adds to the shared alert meter. */
+  function updateGuard(g) {
+    const t = g.body.translation(), v = g.body.linvel();
+    if (g.contactCd > 0) g.contactCd--;
+
+    // what can we see? players first, otherwise a bit of rope
+    let seen = -1, seenDist = Infinity;
+    players.forEach((p, i) => {
+      const q = p.body.translation();
+      const d = sightDistance(g, q.x, q.y, q.z);
+      if (d >= 0 && d < seenDist) { seen = i; seenDist = d; }
+    });
+    let ropeSeen = false;
+    if (seen < 0) {
+      scan: for (const segs of ropes) {
+        for (let k = 0; k < segs.length; k += 3) {
+          const q = segs[k].translation();
+          if (sightDistance(g, q.x, q.y, q.z) >= 0) { ropeSeen = true; break scan; }
+        }
+      }
+    }
+    let gain = seen >= 0 ? ALERT_PLAYER * (1.2 - seenDist / VIEW_DIST) : ropeSeen ? ALERT_ROPE : 0;
+
+    g.see = seen >= 0 ? g.see + 1 : Math.max(0, g.see - 2);
+    if (g.mode !== 2 && g.see >= SEE_TO_CHASE_TICKS) { g.mode = 2; g.target = seen; g.timer = 0; }
+    if (g.mode === 2) {
+      if (seen >= 0) { g.target = seen; g.timer = 0; }
+      else if (++g.timer > LOSE_TARGET_TICKS) { g.mode = 0; g.timer = 0; g.see = 0; g.target = -1; }
+    }
+
+    // where to, and how fast
+    let tx = t.x, tz = t.z, speed = 0, lookX = null, lookZ = null;
+    if (g.mode === 2) {
+      const q = players[g.target].body.translation(), pv = players[g.target].body.linvel();
+      tx = q.x; tz = q.z; speed = GUARD_CHASE_SPEED;
+      if (Math.hypot(q.x - t.x, q.z - t.z) < 1.15 && g.contactCd === 0) { // caught someone: shove them and raise the alarm
+        const dx = q.x - t.x, dz = q.z - t.z, d = Math.hypot(dx, dz) || 1;
+        players[g.target].body.setLinvel({ x: pv.x + (dx / d) * 7, y: pv.y + 3, z: pv.z + (dz / d) * 7 }, true);
+        players[g.target].stun = YANK_STUN;
+        gain += ALERT_CONTACT;
+        g.contactCd = CONTACT_COOLDOWN;
+      }
+    } else if (g.mode === 1) { // pause at the waypoint and look towards the next one
+      const next = g.def.wps[(g.wp + 1) % g.def.wps.length];
+      lookX = next[0] - t.x; lookZ = next[1] - t.z;
+      if (++g.timer >= GUARD_PAUSE_TICKS) { g.mode = 0; g.timer = 0; g.wp = (g.wp + 1) % g.def.wps.length; }
+    } else {
+      [tx, tz] = g.def.wps[g.wp];
+      speed = GUARD_PATROL_SPEED;
+      if (Math.hypot(tx - t.x, tz - t.z) < 0.5) { g.mode = 1; g.timer = 0; speed = 0; }
+    }
+
+    const dx = (lookX ?? tx - t.x), dz = (lookZ ?? tz - t.z), d = Math.hypot(dx, dz);
+    if (speed > 0 && d > 0.01) {
+      g.body.setLinvel({ x: v.x + ((dx / d) * speed - v.x) * 0.25, y: v.y, z: v.z + ((dz / d) * speed - v.z) * 0.25 }, true);
+    } else {
+      g.body.setLinvel({ x: v.x * 0.7, y: v.y, z: v.z * 0.7 }, true);
+    }
+    if (d > 0.01) g.facing += clamp(wrapAngle(Math.atan2(dx, dz) - g.facing), -0.1, 0.1);
+    return gain;
+  }
+
+  function updateGame(gain) {
+    if (game.status !== 0) { // round is over: wait a bit, then start again
+      if (++game.endTicks >= END_RESTART_TICKS) resetAll();
+      return;
+    }
+    game.tick++;
+    game.alert = gain > 0 ? Math.min(100, game.alert + gain) : Math.max(0, game.alert - ALERT_DECAY);
+    const e = LEVEL.exit, s = crates[safeIndex].body.translation();
+    const inExit = Math.abs(s.x - e.x) < e.hx && Math.abs(s.z - e.z) < e.hz && s.y < 1.6;
+    game.winHold = inExit ? game.winHold + 1 : 0;
+    if (game.winHold >= WIN_HOLD_TICKS) game.status = 1;
+    else if (game.alert >= 100) { game.status = 2; game.reason = 1; }
+    else if (game.tick >= TIME_LIMIT_TICKS) { game.status = 2; game.reason = 2; }
   }
 
   // ---------- movement ----------
@@ -372,16 +521,29 @@ export function createSim(n) {
       c.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       c.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
+    for (const g of guards) {
+      const [sx, sz] = g.def.wps[0];
+      g.body.setTranslation({ x: sx, y: 1.2, z: sz }, true);
+      g.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      Object.assign(g, { facing: facingToward(g.def, 0, 1), wp: 1, mode: 0, timer: 0, target: -1, see: 0, contactCd: 0 });
+    }
+    Object.assign(game, { tick: 0, alert: 0, status: 0, reason: 0, winHold: 0, endTicks: 0 });
   }
 
   function step() {
     players.forEach(handleActions);
     players.forEach(updatePlayer);
     applyHolds();
+    let gain = 0;
+    for (const g of guards) {
+      if (game.status === 0) gain += updateGuard(g);
+      else g.body.setLinvel({ x: 0, y: g.body.linvel().y, z: 0 }, true); // round over: guards stand still
+    }
     world.step();
     for (let i = 0; i < n - 1; i++) enforceTether(players[i], players[i + 1]);
     // fell off the world: everyone back to the start
     if (players.some((p) => p.body.translation().y < -15)) resetAll();
+    else updateGame(gain);
   }
 
   // ---------- snapshots ----------
@@ -417,6 +579,15 @@ export function createSim(n) {
       d[o + 7] = r2(v.x); d[o + 8] = r2(v.y); d[o + 9] = r2(v.z);
       d[o + 10] = r2(w.x); d[o + 11] = r2(w.y); d[o + 12] = r2(w.z);
     });
+    guards.forEach((g, i) => {
+      const t = g.body.translation(), v = g.body.linvel(), o = S.gOff + i * S.GN;
+      d[o] = round3(t.x); d[o + 1] = round3(t.y); d[o + 2] = round3(t.z);
+      d[o + 3] = r2(v.x); d[o + 4] = r2(v.y); d[o + 5] = r2(v.z);
+      d[o + 6] = round3(g.facing);
+      d[o + 7] = g.wp; d[o + 8] = g.mode; d[o + 9] = g.timer; d[o + 10] = g.target; d[o + 11] = g.see; d[o + 12] = g.contactCd;
+    });
+    d[S.mOff] = game.tick; d[S.mOff + 1] = round3(game.alert); d[S.mOff + 2] = game.status;
+    d[S.mOff + 3] = game.reason; d[S.mOff + 4] = game.winHold; d[S.mOff + 5] = game.endTicks;
     return d;
   }
 
@@ -454,6 +625,13 @@ export function createSim(n) {
     }
     ropes.forEach((segs, r) => segs.forEach((b, i) => setBody(b, d, S.rOff + (r * ROPE_SEGMENTS + i) * S.RN, true, null)));
     crates.forEach((c, i) => { const o = S.cOff + i * S.CN; setBody(c.body, d, o, true, o + 10); });
+    guards.forEach((g, i) => {
+      const o = S.gOff + i * S.GN;
+      setBody(g.body, d, o, false, null);
+      g.facing = d[o + 6]; g.wp = d[o + 7]; g.mode = d[o + 8]; g.timer = d[o + 9]; g.target = d[o + 10]; g.see = d[o + 11]; g.contactCd = d[o + 12];
+    });
+    game.tick = d[S.mOff]; game.alert = d[S.mOff + 1]; game.status = d[S.mOff + 2];
+    game.reason = d[S.mOff + 3]; game.winHold = d[S.mOff + 4]; game.endTicks = d[S.mOff + 5];
   }
 
   /** Flat array of numbers, see layout(). What the renderer draws. */
@@ -476,8 +654,15 @@ export function createSim(n) {
     pinSeg.forEach((k, r) => { d[L.kOff + r] = k; });
     players.forEach((p, i) => { d[L.fOff + i] = p.cooldown / YANK_COOLDOWN; });
     crates.forEach((_, i) => { d[L.hOff + i] = holdersOf(i).length; });
+    guards.forEach((g, i) => {
+      const t = g.body.translation(), o = L.gOff + i * 5;
+      d[o] = round3(t.x); d[o + 1] = round3(t.y); d[o + 2] = round3(t.z); d[o + 3] = round3(g.facing); d[o + 4] = g.mode;
+    });
+    d[L.sOff] = game.status; d[L.sOff + 1] = game.reason;
+    d[L.sOff + 2] = Math.max(0, Math.ceil((TIME_LIMIT_TICKS - game.tick) / 60));
+    d[L.sOff + 3] = Math.round(game.alert * 10) / 10;
     return d;
   }
 
-  return { n, world, players, ropes, crates, pinSeg, step, pose, state, loadState, resetAll, isGrounded };
+  return { n, world, players, ropes, crates, guards, game, pinSeg, step, pose, state, loadState, resetAll, isGrounded, sightDistance };
 }

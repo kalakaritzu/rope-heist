@@ -28,7 +28,11 @@ Browser game: Three.js + Rapier physics, peer-to-peer multiplayer (WebRTC), host
   - **Tie (Q):** pins the loose rope segment nearest a pillar to its face (a fixed body, so the rope becomes a real anchor). Q again near the knot unties.
   - Controls: P1 `WASD Space E F Q`, local P2 `Arrows Enter . / ,`. Online, either hand works.
   - Rough edges: no kill zones or alarms yet, tie-off only works on the two pillars, held crates can clip the rope, and the yank is symmetric (no aiming).
-- [ ] **Phase 3: Heist level.** One building: entry, loot target, guard patrol, exit, timer, win/lose.
+- [x] **Phase 3: Heist level ("The Museum").** Start in the green getaway zone, sneak through the front door and the hall, past the inner gap into the vault, and carry the gold safe (two players) back to the zone.
+  - **Guards (3):** loop through waypoints, pause and look around at each one. Vision cone (8 m, about 80 degrees) with line of sight: walls and crates block it, the door gap does not. Seeing a player fills a shared ALERT meter; seeing only the rope fills it slower. After 0.6 s of continuous sight a guard chases at 3.6 u/s (players walk at 5), shoves you on contact (alert +15) and gives up 2.5 s after losing sight.
+  - **Rules:** win when the safe sits in the zone for half a second. Lose when ALERT reaches 100 or the 2:30 timer runs out. The round restarts by itself 10 s after either, so clients need no button (R still resets on the host).
+  - Guards, alert, timer and status are all in the rollback state, so prediction covers them (restored copies chase on the same tick). HUD: timer, alert bar, win/lose banner.
+  - Rough edges: guards can't open doors or be tied up yet, no sound, one level only, the first physics tick has no sight queries (harmless), chase routing is straight-line (they can get stuck behind walls).
 - [ ] **Phase 5: Proximity voice + identity.** Voice chat, nametags, colours, emotes.
 - [ ] **Phase 6: Content and polish.** More levels and loot, alarms/lasers, sound, clip-friendly fail states, mobile/gamepad.
 - [ ] **Phase 7: Public launch.** Playtest with friends, fix desync, share link.

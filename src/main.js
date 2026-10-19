@@ -42,6 +42,22 @@ function hideMenu(hud) {
   $('menu').classList.add('hidden');
   $('hud').style.display = 'block';
   $('hud').innerHTML = hud;
+  $('game').style.display = 'block';
+}
+
+const LOSS_REASON = { 1: 'The alarm went off', 2: 'Out of time' };
+/** Timer, alert meter and win/lose banner, read from the pose array's game section. */
+function updateGameHud(d, L) {
+  const status = d[L.sOff], reason = d[L.sOff + 1], secs = d[L.sOff + 2], alert = d[L.sOff + 3];
+  $('timer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  $('timer').classList.toggle('low', secs <= 20 && status === 0);
+  $('alertfill').style.width = `${alert}%`;
+  const banner = $('banner');
+  banner.className = status === 0 ? '' : `show ${status === 1 ? 'won' : 'lost'}`;
+  if (status !== 0) {
+    $('banner-title').textContent = status === 1 ? 'HEIST COMPLETE' : 'BUSTED';
+    $('banner-sub').textContent = `${status === 1 ? 'You got away with the safe' : LOSS_REASON[reason] || ''}. Restarting shortly...`;
+  }
 }
 function renderPlayerDots(count, mine = -1) {
   $('players').innerHTML = Array.from({ length: MAX_PLAYERS }, (_, i) =>
@@ -52,6 +68,7 @@ function renderPlayerDots(count, mine = -1) {
 function startHostLoop({ n, net, local, hud }) {
   const sim = createSim(n);
   const view = createView(n, local ? -1 : 0);
+  const L = layout(n);
   hideMenu(hud);
 
   let acc = 0, last = performance.now(), tick = 0;
@@ -82,7 +99,9 @@ function startHostLoop({ n, net, local, hud }) {
     last = now;
     acc += dt;
     while (acc >= STEP) { hostTick(); acc -= STEP; }
-    view.apply(sim.pose());
+    const pose = sim.pose();
+    view.apply(pose);
+    updateGameHud(pose, L);
     view.render(dt, now);
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };
@@ -109,6 +128,7 @@ function startClientLoop({ n, index, conn, hooks }) {
   const isPos = new Uint8Array(L.size);
   for (let i = 0; i < n; i++) isPos.fill(1, L.pOff + i * 4, L.pOff + i * 4 + 3);
   isPos.fill(1, L.rOff, L.cOff);
+  for (let i = 0; i < L.guards; i++) isPos.fill(1, L.gOff + i * 5, L.gOff + i * 5 + 3);
   for (let i = 0; i < L.crates; i++) isPos.fill(1, L.cOff + i * 7, L.cOff + i * 7 + 3);
 
   let seq = 0;
@@ -160,6 +180,7 @@ function startClientLoop({ n, index, conn, hooks }) {
     }
     shown = pose;
     view.apply(pose);
+    updateGameHud(pose, L);
     view.render(dt, now);
   }
   const frame = (now) => { requestAnimationFrame(frame); update(now); };

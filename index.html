@@ -8,6 +8,19 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1d29; font-family: system-ui, sans-serif; color: #fff; }
     canvas { display: block; }
     #hud { position: fixed; left: 12px; top: 10px; font-size: 13px; line-height: 1.5; opacity: .9; pointer-events: none; text-shadow: 0 1px 2px #000; display: none; }
+    #game { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: none; text-align: center; pointer-events: none; text-shadow: 0 1px 3px #000; }
+    #timer { font-size: 30px; font-weight: 800; letter-spacing: 2px; }
+    #timer.low { color: #ff6b6b; }
+    #alertbar { width: 240px; height: 12px; margin: 6px auto 0; border-radius: 6px; background: #0007; overflow: hidden; border: 1px solid #fff4; }
+    #alertfill { height: 100%; width: 0; background: linear-gradient(90deg, #ffd166, #ff4d4d); transition: width .15s linear; }
+    #alertlabel { font-size: 11px; opacity: .8; letter-spacing: 2px; margin-top: 2px; }
+    #objective { font-size: 12px; opacity: .85; margin-top: 4px; }
+    #banner { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; text-shadow: 0 2px 8px #000; z-index: 5; }
+    #banner.show { display: flex; }
+    #banner h2 { font-size: clamp(36px, 8vw, 84px); margin: 0; letter-spacing: 4px; }
+    #banner p { font-size: 18px; margin: 8px 0 0; opacity: .9; }
+    #banner.won h2 { color: #4ade80; }
+    #banner.lost h2 { color: #ff6b6b; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 30%, #2b3050, #14161f); z-index: 10; }
     #menu.hidden { display: none; }
     .card { width: min(380px, 90vw); padding: 28px; border-radius: 16px; background: #232842; box-shadow: 0 10px 40px #0008; }
@@ -30,6 +43,14 @@
 </head>
 <body>
   <div id="hud"></div>
+
+  <div id="game">
+    <div id="timer">2:30</div>
+    <div id="alertbar"><div id="alertfill"></div></div>
+    <div id="alertlabel">ALERT</div>
+    <div id="objective">Steal the gold safe (needs two of you) and bring it back to the green zone</div>
+  </div>
+  <div id="banner"><h2 id="banner-title"></h2><p id="banner-sub"></p></div>
 
   <div id="menu">
     <div class="card">
